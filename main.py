@@ -20,10 +20,20 @@ from dotenv import get_key, set_key
 from ZSDR import roll_dice
 
 SHARE_PREFIX = "https://app.adventurerscodex.com/share/"
+
 DM_ROLE_KEY = "dm_role"
 PLAYER_ROLE_KEY = "player_role"
+
 INITIATIVE_KEY = "initiative"
 CURRENT_INITIATIVE_KEY = "current_initiative"
+
+DATES_KEY = "dates"
+TIMELINE_KEY = "timeline"
+CAMPAIGN_START_KEY = "campaign_start"
+CURRENT_DATE_KEY = "current_date"
+CALENDAR_KEY = "calendar"
+
+MONTHS = ["Hammer", "Alturiak", "Ches", "Tarsakh", "Mirtul", "Kythorn", "Flamerule", "Eleasis", "Eleint", "Marpenoth", "Uktar", "Nightal"]
 ALL_SPELLS = {}
 SPELLS_BY_CLASS_AND_LEVEL = {}
 
@@ -32,15 +42,15 @@ def populate_spells():
     global ALL_SPELLS
 
     r = requests.get("http://dnd5e.wikidot.com/spells")
-    pattern = re.compile("<a href=\"/spell:(.*?)\">(.*?)</a>")
+    pattern = re.compile("<a href=\"/spell:(.+?)\">(.+?)</a>")
 
     for match in pattern.finditer(r.text):
         ALL_SPELLS[match.group(2)] = match.group(1)
 
         # spell_r = requests.get("http://dnd5e.wikidot.com/spell:"+match.group(1))
-        # spell_pattern = re.compile("spells:(.*?)\"")
+        # spell_pattern = re.compile("spells:(.+?)\"")
         #
-        # level_match = re.search("<em>([0-9]).*?-level|(cantrip).*?<\/em>", spell_r.text)
+        # level_match = re.search("<em>([0-9]).+?-level|(cantrip).+?<\/em>", spell_r.text)
         # level = level_match.group(1) or level_match.group(2)
         #
         # for spell_group_match in spell_pattern.finditer(spell_r.text):
@@ -117,7 +127,7 @@ def set_and_get_env(key: str, prompt: str, strip=False, on_exit=None) -> str:
         i = input_.get(1.0, "end-1c")
 
         if strip:
-            i = i.strip
+            i = i.strip()
 
         set_key(env_file, key, i)
         window.destroy()
@@ -206,7 +216,7 @@ async def on_guild_remove(guild):
 
 async def check_dm(ctx: interactions.CommandContext, player: interactions.Member):
     if DM_ROLE_KEY not in data[str(ctx.guild.id)]:
-        await ctx.send(embeds=interactions.Embed(title="DM Role Not Found", description="Use `/dm-role` to set a DM role before using the `player` paremeter", color=interactions.Color.red()), ephemeral=True)
+        await ctx.send(embeds=interactions.Embed(title="DM Role Not Found", description="Use `/dm-role` to set a DM role doing this", color=interactions.Color.red()), ephemeral=True)
         return False
 
     dm_role_id = int(data[str(ctx.guild.id)][DM_ROLE_KEY])
@@ -233,14 +243,14 @@ def get_ability(player_id: str, ability: str, saving_throw: bool = False):
 
     r = requests.get(SHARE_PREFIX + player_id)
 
-    pattern = re.compile("[> ]" + ability + "[<\n].*?"+("Saving Throw.*?" if saving_throw else "")+" ([+-] ?[0-9])", re.RegexFlag.DOTALL)
+    pattern = re.compile("[> ]" + ability + "[<\n].+?"+("Saving Throw.+?" if saving_throw else "")+" ([+-] ?[0-9])", re.RegexFlag.DOTALL)
     return pattern.search(r.text).group(1).replace(" ", "")
 
 
 def get_stat(player_id: str, stat: str):
     r = requests.get(SHARE_PREFIX + player_id)
 
-    pattern = re.compile("(?<=[> ]" + stat + "[<\n]).*? (-?[0-9])", re.RegexFlag.DOTALL)
+    pattern = re.compile("(?<=[> ]" + stat + "[<\n]).+? (-?[0-9])", re.RegexFlag.DOTALL)
     return pattern.search(r.text).group(1)
 
 
@@ -262,9 +272,23 @@ def add_to_initiative(guild: interactions.Guild, name: str, initiative: int, mod
 
     return False
 
+def is_date_later(date_, check):
+    date_ = [int(s) for s in date_.split("-")]
+    check = [int(s) for s in check.split("-")]
+
+    return check[2] >= date_[2] and check[1] >= date_[1] and check[0] > date[0]
+
 
 def get_spell_stat(text: str, stat: str):
-    return re.search("<strong>"+stat+":</strong> (.*?)<", text).group(1)
+    return re.sub("<.+?>|\n", "", re.search("<strong>"+stat+":</strong> (.+?)<[^/]+?>", text, flags=re.RegexFlag.DOTALL).group(1))
+
+
+def format_date(guild: interactions.Guild, date_):
+    dates = data[str(guild.id)][DATES_KEY]
+
+    date_ = [int(s) for s in date_.split("-")]
+
+    return f"{date_[0]} {MONTHS[date_[1]]}, {date_[2]}{' '+dates[CALENDAR_KEY] if CALENDAR_KEY in dates else ''}"
 
 
 # Commands
@@ -713,14 +737,16 @@ async def spell_command(ctx: interactions.CommandContext, spell: str, public: bo
 
     r = requests.get("http://dnd5e.wikidot.com/spell:"+ALL_SPELLS[key])
 
-    description = re.search("Duration.*?<p>(.*?)</p>", r.text, flags=re.RegexFlag.DOTALL).group(1)
-    source = re.search("<p>Source: (.*?)</p>", r.text).group(1)
-    spell_lists = ", ".join([match.group(1).title() for match in re.finditer("spells:(.*?)\"", r.text)])
+    description = re.search("Duration.+?(<p>.+?</.+?>)\n<p><strong><em>Spell Lists", r.text, flags=re.RegexFlag.DOTALL).group(1)
+    description = re.sub("</?p>|\n?</ul>|<ul>|</li>", "", re.sub("</?strong>", "**", re.sub("</?em>", "*", re.sub("<li>", "• ", description))))
 
-    higher_level_match = re.search("At Higher Levels.*? (.*?)</p>", r.text)
+    source = re.search("<p>Source: (.+?)</p>", r.text).group(1)
+    spell_lists = ", ".join([match.group(1).title() for match in re.finditer("spells:(.+?)\"", r.text)])
+
+    higher_level_match = re.search("At Higher Levels.+? (.+?)</p>", r.text)
     higher_level = None if not higher_level_match else higher_level_match.group(1)
 
-    level_match = re.search("<em>(([0-9].*?-level.*?)|(.*?cantrip.*?))</em>", r.text)
+    level_match = re.search("<em>(([0-9].+?-level.+?)|(.+?cantrip.+?))</em>", r.text)
     level = level_match.group(1) or level_match.group(2)
 
     embed_desc=f"""
@@ -751,7 +777,171 @@ async def spell_command(ctx: interactions.CommandContext, spell: str, public: bo
 )
 async def autocomplete_spell(ctx: interactions.CommandContext, user_input: str = ""):
     spells = {key: ALL_SPELLS[key] for key in list(filter(lambda key: key.lower().startswith(user_input.lower()), ALL_SPELLS.keys()))[0:25]}
-    await ctx.populate([interactions.Choice(name=key, value=value) for key, value in spells.items()])
+    await ctx.populate([interactions.Choice(name=key, value=key) for key, value in spells.items()])
+
+
+DATE_OPTIONS = [
+    interactions.Option(
+        name="day",
+        description="The day of the month.",
+        type=interactions.OptionType.INTEGER,
+        required=True
+    ),
+    interactions.Option(
+        name="month",
+        description="The month.",
+        type=interactions.OptionType.STRING,
+        choices=[interactions.Choice(name=month, value=month) for month in MONTHS],
+        required=True
+    ),
+    interactions.Option(
+        name="year",
+        description="The year, number. To set the calendar, use `/date calendar`.",
+        type=interactions.OptionType.INTEGER,
+        required=True
+    )
+]
+
+
+@bot.command(
+    name="date",
+    description="Base command for modifying the timeline.",
+    scope=bot.guilds
+)
+async def date(ctx: interactions.CommandContext):
+    if DATES_KEY not in data[str(ctx.guild.id)]:
+        data[str(ctx.guild.id)][DATES_KEY] = {TIMELINE_KEY: {}}
+
+
+async def check_date(ctx: interactions.CommandContext, day: int, month: str, year: int):
+    if day < 1 or day > 30 or year < 1:
+        await ctx.send(embeds=interactions.Embed(title="Error", description="Invalid day or year. 1 <= day <= 30, year > 0.", color=interactions.Color.red()))
+        return None
+
+    return f"{day}-{MONTHS.index(month)}-{year}"
+
+
+async def set_date_command(ctx: interactions.CommandContext, day: int, month: str, year: int, key: str):
+    if not (await check_dm(ctx, ctx.author)): return False
+
+    date_ = await check_date(ctx, day, month, year)
+
+    if not date: return False
+
+    data[str(ctx.guild.id)][DATES_KEY][key] = date_
+    return True
+
+
+@date.subcommand(
+    name="origin",
+    description="Set the date for the campaign start.",
+    options=DATE_OPTIONS
+)
+async def date_origin(ctx: interactions.CommandContext, day: int, month: str, year: int):
+    if await set_date_command(ctx, day, month, year, CAMPAIGN_START_KEY):
+        await ctx.send(embeds=interactions.Embed(title="Date Set", description="Campaign start date successfully set to **"+format_date(ctx.guild, f"{day}-{MONTHS.index(month)}-{year}")+"**", color=interactions.Color.green()), ephemeral=True)
+
+
+@date.subcommand(
+    name="set",
+    description="Set the current date.",
+    options=DATE_OPTIONS
+)
+async def date_set(ctx: interactions.CommandContext, day: int, month: str, year: int):
+    if await set_date_command(ctx, day, month, year, CURRENT_DATE_KEY):
+        await ctx.send(embeds=interactions.Embed(title="Date Set", description="Current date successfully set to **"+format_date(ctx.guild, f"{day}-{MONTHS.index(month)}-{year}")+"**", color=interactions.Color.green()), ephemeral=True)
+
+
+@date.subcommand(
+    name="calendar",
+    description="Set the calender suffix.",
+    options=[
+        interactions.Option(
+            name="suffix",
+            description="The suffix to use (e.g. DR)",
+            type=interactions.OptionType.STRING,
+            required=True
+        )
+    ]
+)
+async def date_calendar(ctx: interactions.CommandContext, suffix: str):
+    if not (await check_dm(ctx, ctx.author)): return
+
+    data[str(ctx.guild.id)][DATES_KEY][CALENDAR_KEY] = suffix
+    await ctx.send(embeds=interactions.Embed(title="Calendar Set", description="Calendar suffix successfully set to **"+suffix+"**", color=interactions.Color.green()))
+
+
+@date.group(
+    name="event",
+    description="Manage events on the timeline"
+)
+async def date_event(ctx: interactions.CommandContext):
+    pass
+
+
+@date_event.subcommand(
+    name="add",
+    description="Add an event to the timeline.",
+    options=[
+        interactions.Option(
+            name="title",
+            description="The title of the event.",
+            type=interactions.OptionType.STRING,
+            required=True
+        ),
+        interactions.Option(
+            name="description",
+            description="The description of the event.",
+            type=interactions.OptionType.STRING,
+            required=True
+        )
+    ] + DATE_OPTIONS
+)
+async def date_event_add(ctx: interactions.CommandContext, title: str, description: str, day: int, month: str, year: int):
+    if not (await check_dm(ctx, ctx.author)): return
+
+    date_ = await check_date(ctx, day, month, year)
+    if not date_: return
+
+    timeline = data[str(ctx.guild.id)][DATES_KEY][TIMELINE_KEY]
+
+    if date_ not in timeline:
+        timeline[date_] = {}
+
+    if title in timeline[date_]:
+        await ctx.send(embeds=interactions.Embed(title="Already Exists", description="An event with that name on that date already exists. `/date event remove` to remove it", color=interactions.Color.red()), ephemeral=True)
+        return
+
+    timeline[date_][title] = description
+    await ctx.send(embeds=interactions.Embed(title="Event Added", description="**"+title+"** has been added on **"+format_date(ctx.guild, date_)+"**", color=interactions.Color.green()), ephemeral=True)
+
+
+@date_event.subcommand(
+    name="remove",
+    description="Remove an event from the timeline.",
+    options=[
+        interactions.Option(  # TODO: make this be an autocomplete menu, for date, then event
+            name="title",
+            description="The title of the event.",
+            type=interactions.OptionType.STRING,
+            required=True
+        )
+    ] + DATE_OPTIONS
+)
+async def date_event_remove(ctx: interactions.CommandContext, title: str, day: int, month: str, year: int):
+    if not (await check_dm(ctx, ctx.author)): return
+
+    date_ = await check_date(ctx, day, month, year)
+    if not date_: return
+
+    timeline = data[str(ctx.guild.id)][DATES_KEY][TIMELINE_KEY]
+
+    if date_ not in timeline or title not in timeline[date_]:
+        await ctx.send(embeds=interactions.Embed(title="Doesn't Exist", description="Cannot find an event with that title on that date", color=interactions.Color.red()), ephemeral=True)
+        return
+
+    del timeline[date_][title]
+    await ctx.send(embeds=interactions.Embed(title="Event Removed", description="**"+title+"** has been removed from **"+format_date(ctx.guild, date_)+"**", color=interactions.Color.green()), ephemeral=True)
 
 
 def confirm_quit():
