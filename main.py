@@ -3,12 +3,16 @@ import json
 import sys
 import os
 import os.path as path
+import builtins
 import platform
 from tkinter import *
 from tkinter.messagebox import askyesno
 
+from zipfile import ZipFile
 import re
 import uuid
+import signal
+import atexit
 import requests
 import subprocess
 import interactions
@@ -81,6 +85,7 @@ populate_spells()
 appname = "D&D Bot"
 appauthor = "MaliciousFiles"
 roaming_dir = user_data_dir(appname, appauthor, roaming=True)
+cache_dir = user_cache_dir(appname, appauthor)
 
 if not path.exists(roaming_dir):
     os.makedirs(roaming_dir)
@@ -94,6 +99,40 @@ data_file = path.join(roaming_dir, "data.json")
 if not path.exists(data_file):
     with open(data_file, "x") as f:
         f.write("{}")
+
+MONSTER_CR = ["1/8", "1/4", "1/2"] + [str(i) for i in range(1, 31)]
+MONSTERS_CACHED = True
+MONSTER_STATS = {}
+MONSTER_ID_BY_NAME = {}
+MONSTER_NAME_BY_ID = {}
+
+monster_stats_file = path.join(cache_dir, "stats.json")
+if not path.exists(monster_stats_file):
+    MONSTERS_CACHED = False
+else:
+    with open(monster_stats_file) as f:
+        MONSTER_STATS = json.load(f)
+
+def populate_monsters():
+    reprint_cache = {}
+    for key, value in MONSTER_STATS.items():
+        name = value["name"]
+
+        if name not in reprint_cache:
+            has_reprints = len(list(filter(lambda stats: stats["name"] == name, MONSTER_STATS.values()))) > 1
+            reprint_cache[name] = has_reprints
+        else:
+            has_reprints = reprint_cache[name]
+
+        name = name+(" ("+key.split("-")[-1]+")" if has_reprints else "")
+        MONSTER_ID_BY_NAME[name] = key
+        MONSTER_NAME_BY_ID[key] = name
+
+populate_monsters()
+
+monster_stat_blocks_file = path.join(cache_dir, "statblocks.zip")
+if not path.exists(monster_stat_blocks_file):
+    MONSTERS_CACHED = False
 
 try:
     __file__ = __file__
@@ -173,9 +212,12 @@ def get_or_set_env(key: str, prompt: str, strip=False, on_exit=None) -> str:
         return get_key(env_file, key)
 
 
-def quit_app():
+def quit_app(thing1=None, thing2=None):
     with open(data_file, "w") as f:
         json.dump(data, f)
+
+    with open(monster_stats_file, "w") as f:
+        json.dump(MONSTER_STATS, f)
 
     icon.visible = False
     icon.stop()
@@ -237,8 +279,8 @@ async def check_dm(ctx: interactions.CommandContext, player: interactions.Member
 
 async def check_char_sheet(ctx: interactions.CommandContext, player: interactions.Member, self: bool = True):
     if not str(player.id) in data[str(ctx.guild.id)]:
-        await ctx.send(embeds=interactions.Embed(title="No Character Sheet Linked",
-                                                 description="Use `/link` to link your Adventurer's Codex character sheet" if self else player.mention + " does not have an Adventurer's Codex character sheet linked",
+        await ctx.send(embeds=interactions.Embed(title="No Character Linked",
+                                                 description="Use `/account` to link your Adventurer's Codex account, and `/character` to set the character to use" if self else player.mention + " does not have an Adventurer's Codex character linked",
                                                  color=interactions.Color.red()), ephemeral=True)
         return False
 
@@ -349,10 +391,9 @@ async def confirm_action(ctx, id: str, callback):  # TODO: make this use a Modal
         return
 
 
-# Commands
 @bot.command(
-    name="link",
-    description="Link your Adventurer's Codex character sheet.",
+    name="account",
+    description="Submit your Adventurer's Codex credentials.",
     options=[
         interactions.Option(
             name="link",
@@ -812,6 +853,292 @@ async def autocomplete_spell(ctx: interactions.CommandContext, user_input: str =
     await ctx.populate([interactions.Choice(name=key, value=key) for key in spells.keys()])
 
 
+@bot.command(
+    name="monster",
+    description="Base command for querying monsters."
+)
+async def monster_command(ctx: interactions.CommandContext):
+    pass
+
+
+@monster_command.subcommand(
+    name="statblock",
+    description="Get a monster statblock, either from a selection menu or by name.",
+    options=[
+        interactions.Option(
+            name="monster",
+            description="The monster's name.",
+            type=interactions.OptionType.STRING,
+            required=True,
+            autocomplete=True
+        ),
+        interactions.Option(
+            name="public",
+            description="Show response publicly.",
+            type=interactions.OptionType.BOOLEAN
+        )
+    ]
+)
+async def monster_statblock(ctx: interactions.CommandContext, monster: str, public: bool = False):
+    name = None
+    for k in MONSTER_ID_BY_NAME.keys():
+        if re.sub("[^a-z]", "", monster.lower()) == re.sub("[^a-z]", "", k.lower()):
+            name = k
+            break
+
+    if not name:
+        await ctx.send(embeds=interactions.Embed(title="Not Found", description="Could not find that monster", color=interactions.Color.red()), ephemeral=True)
+        return
+
+    id = MONSTER_ID_BY_NAME[name]
+
+    url = None
+    if "cdn" in MONSTER_STATS[id]:
+        url = MONSTER_STATS[id]["cdn"]
+        if requests.get(url).status_code != 200:
+            url = None
+
+    if url == None:
+        file_name = id + ".png"
+        file_path = path.join(cache_dir, file_name)
+
+        with ZipFile(monster_stat_blocks_file, "r") as zip:
+            zip.extract(file_name, cache_dir)
+
+        message = await ctx.channel.send(files=interactions.File(filename=file_path))
+        url = message.attachments[0].url
+        await message.delete()
+
+        os.remove(file_path)
+
+        MONSTER_STATS[id]["cdn"] = url
+
+    await ctx.send(embeds=interactions.Embed(image=interactions.EmbedImageStruct(url=url), color=interactions.Color.blurple()), ephemeral=not public)
+
+
+@monster_command.autocomplete(
+    name="monster"
+)
+async def autocomplete_monster(ctx: interactions.CommandContext, user_input: str = ""):
+    await ctx.populate([interactions.Choice(name=key, value=key) for key in filter(lambda key: key.lower().startswith(user_input.lower()), MONSTER_ID_BY_NAME.keys())][:25])
+
+
+def get_speed_choices():
+    choices = []
+    for stats in d.values():
+        for speed in stats["speeds"].keys():
+            choices.append(interactions.Choice(name=speed.title(), value=speed))
+
+    return choices
+
+
+@monster_command.subcommand(
+    name="search",
+    description="Search for a monster, based on certain criteria. For multiple inputs, use CSV: `key1,key2,key3`",
+    options=[
+        interactions.Option(
+            name="keywords",
+            description="Search for given keywords in the name.",
+            type=interactions.OptionType.STRING
+        ),
+        interactions.Option(
+            name="cr",
+            description="Search for monsters with the given CRs. Can also be provided as a range: `1/2-3,7-9`",
+            type=interactions.OptionType.STRING
+        ),
+        interactions.Option(
+            name="size",
+            description="Search for monsters with the given sizes.",
+            type=interactions.OptionType.STRING
+        ),
+        interactions.Option(
+            name="alignment",
+            description="Search for monsters with the given alignments.",
+            type=interactions.OptionType.STRING
+        ),
+        interactions.Option(
+            name="type",
+            description="Search for monsters with the given types.",
+            type=interactions.OptionType.STRING
+        ),
+        interactions.Option(
+            name="subtype",
+            description="Search for monsters with the given subtypes.",
+            type=interactions.OptionType.STRING
+        ),
+        interactions.Option(
+            name="speed",
+            description="Search for monsters that have the given speed.",
+            type=interactions.OptionType.STRING
+        ),
+        interactions.Option(
+            name="source",
+            description="Search for monsters from the given source.",
+            type=interactions.OptionType.STRING
+        )
+    ]
+)
+async def monster_search(ctx: interactions.CommandContext, keywords: str = None, cr: str = None, size: str = None, alignment: str = None, type: str = None, subtype: str = None, speed: str = None, source: str = None):
+    if cr:
+        cr = cr.replace(" ", "")
+        for challenge in cr.split(","):
+            if not all([c in MONSTER_CR for c in challenge.split("-")]):
+                await ctx.send(
+                    embeds=interactions.Embed(title="Error", description="CR doesn't match the format `cr` or `cr-cr`",
+                                              color=interactions.Color.red()), ephemeral=True)
+                return
+    def test(id: str):
+        stats = MONSTER_STATS[id]
+
+        if keywords:
+            if not any([keyword.lower().strip() in stats["name"].lower() for keyword in keywords.split(",")]):
+                return False
+        if cr:
+            contains = False
+            for challenge in cr.split(","):
+                range_ = challenge.split("-")
+
+                if len(range_) == 2:
+                    idx1 = MONSTER_CR.index(range_[0])
+                    idx2 = MONSTER_CR.index(range_[1])
+                    for cr_ in MONSTER_CR[idx1 if idx1 < idx2 else idx2:(idx2 if idx2 > idx1 else idx1)+1]:
+                        if stats["cr"] == cr_:
+                            contains = True
+                            break
+                    if contains: break
+                else:
+                    if stats["cr"] == challenge:
+                        contains = True
+                        break
+
+            if not contains: return False
+
+        if size:
+            if not any([s.lower().strip() == stats["size"].lower() for s in size.split(",")]):
+                return False
+
+        if alignment:
+            if not any([("neutral" if (a.lower().strip() == "neutral neutral" or a.lower().strip() == "true neutral") else a.lower().strip()) == stats["alignment"].lower() for a in alignment.split(",")]):
+                return False
+
+        if type:
+            if not any([t.lower().strip() == stats["type"].lower() for t in type.split(",")]):
+                return False
+
+        if subtype:
+            if not any([any([st.lower().strip() == st_.lower() for st_ in stats["subtype"]]) for st in subtype.split(",")]):
+                return False
+
+        if speed:
+            if not any([any([s.lower().strip() == s_.lower() for s_ in stats["speeds"].keys()]) for s in speed.split(",")]):
+                return False
+
+        if source:
+            if not any([s.lower().strip() == id.split("-")[-1].lower() for s in source.split(",")]):
+                return False
+
+
+        return True
+
+    monsters = list(filter(test, MONSTER_STATS.keys()))
+
+    if len(monsters) == 0:
+        descs = ["None"]
+    else:
+        descs = []
+
+        for id_ in monsters:
+            stats = MONSTER_STATS[id_]
+
+            desc = f"\n\n**{MONSTER_NAME_BY_ID[id_]}**"
+
+            if cr and (len(cr.split(",")) > 1 or len(cr.split("-")) > 1):
+                desc += f"\n__CR__: {stats['cr']}"
+            if size and len(size.split(",")) > 1:
+                desc += f"\n__Size__: {stats['size'].title()}"
+            if alignment and len(alignment.split(",")) > 1:
+                desc += f"\n__Alignment__: {stats['alignment'].title()}"
+            if type and len(type.split(",")) > 1:
+                desc += f"\n__Type__: {stats['type'].title()}"
+            if subtype and len(subtype.split(",")) > 1:
+                desc += f"\n__Subtypes__: {','.join([s.title() for s in stats['subtypes']])}"
+            if speed and len(speed.split(",")) > 1:
+                for speed_ in speed.split(","):
+                    stats_speed = stats['speeds'][speed_.lower().strip()]
+                    desc += f"\n__{speed_.title()} Speed__: "
+                    if builtins.type(stats_speed) == dict:
+                        desc += f"{stats_speed['number']} ft. {stats_speed['condition']}"
+                    else:
+                        desc += f"{stats_speed} ft."
+            if source and len(source.split(",")) > 1:
+                desc += f"\n__Source__: {id_.split('-')[-1]}"
+
+            if len(descs) == 0 or len(desc) + len(descs[-1]) > 4096 or f"{descs[-1]}{desc}".count("\n") > 297:  # apparently embeds have a max of ~297 lines??
+                descs.append(desc[2:])
+            else:
+                descs[-1] += desc
+
+    for desc in descs:
+        await ctx.send(embeds=interactions.Embed(description=desc, color=interactions.Color.blurple()), ephemeral=True)
+
+
+@monster_command.group(
+    name="search-options",
+    description="List the possibilities for the `/monster search` parameters."
+)
+async def monster_search_options(ctx: interactions.CommandContext):
+    pass
+
+
+@monster_search_options.subcommand(name="cr")
+async def monster_search_options_cr(ctx: interactions.CommandContext):
+    await ctx.send(embeds=interactions.Embed(title="CR Options", description='\n'.join(['• '+cr for cr in ["1/8", "1/4", "1/2", "1-30"]]), color=interactions.Color.blurple()), ephemeral=True)
+
+
+@monster_search_options.subcommand(name="size")
+async def monster_search_options_cr(ctx: interactions.CommandContext):
+    await ctx.send(embeds=interactions.Embed(title="Size Options", description='\n'.join(['• '+size.title() for size in ["tiny", "small", "medium", "large", "huge", "gargantuan"]]), color=interactions.Color.blurple()), ephemeral=True)
+
+
+@monster_search_options.subcommand(name="alignment")
+async def monster_search_options_cr(ctx: interactions.CommandContext):
+    await ctx.send(embeds=interactions.Embed(title="Alignment Options", description='\n'.join(sorted(set('• '+stats['alignment'].title() for stats in MONSTER_STATS.values()))), color=interactions.Color.blurple()), ephemeral=True)
+
+
+@monster_search_options.subcommand(name="type")
+async def monster_search_options_cr(ctx: interactions.CommandContext):
+    await ctx.send(embeds=interactions.Embed(title="Type Options", description='\n'.join(set('• '+ stats['type'].title() for stats in MONSTER_STATS.values())), color=interactions.Color.blurple()), ephemeral=True)
+
+
+@monster_search_options.subcommand(name="subtype")
+async def monster_search_options_cr(ctx: interactions.CommandContext):
+    subtypes = set()
+
+    for stats in MONSTER_STATS.values():
+        for subtype in stats['subtypes']:
+            if builtins.type(subtype) == dict:
+                subtypes.add("• "+subtype["prefix"].title()+" "+subtype["tag"].title())
+            else:
+                subtypes.add("• "+subtype.title())
+
+    await ctx.send(embeds=interactions.Embed(title="Subtype Options", description='\n'.join(subtypes), color=interactions.Color.blurple()), ephemeral=True)
+
+
+@monster_search_options.subcommand(name="speed")
+async def monster_search_options_cr(ctx: interactions.CommandContext):
+    speeds = set()
+
+    for stats in MONSTER_STATS.values():
+        for speed in stats['speeds'].keys(): speeds.add("• "+speed.title())
+
+    await ctx.send(embeds=interactions.Embed(title="Speed Options",description='\n'.join(speeds), color=interactions.Color.blurple()), ephemeral=True)
+
+
+@monster_search_options.subcommand(name="source")
+async def monster_search_options_cr(ctx: interactions.CommandContext):
+    await ctx.send(embeds=interactions.Embed(title="Source Options", description='\n'.join(sorted(set('• '+stats['source'].title() for stats in MONSTER_STATS.values()))), color=interactions.Color.blurple()), ephemeral=True)
+
+
 NEW_DATE_OPTIONS = [
     interactions.Option(
         name="day",
@@ -998,16 +1325,22 @@ async def date_next(ctx: interactions.CommandContext, downtime: bool = False):
     if date:
         await ctx.send(embeds=interactions.Embed(title="Date Set", description="Current date advanced to **"+format_date(ctx.guild, date)+"**", color=interactions.Color.green()), ephemeral=True)
 
-        if (downtime):
+        if downtime:
+            if MONEY_KEY not in data[str(ctx.guild.id)]: return
+
             money = data[str(ctx.guild.id)][MONEY_KEY]
 
-            for key in money:
-                for user in money[key]:
-                    for item in money[key][user]:
-
-
+            # for key in money:
+            #     for user in money[key]:
+            #         for item in money[key][user]:
+            #             m = 1
+            #             if key == EXPENSES_KEY:
+            #                 m = -1
+            #
+            #             await (await ctx.guild.get_member(int(user))).send(embeds=interactions.Embed(title="hi"))
+            #
             # TODO: apply daily income and expenses
-            pass
+            # pass
 
 @date_command.subcommand(
     name="calendar",
@@ -1545,5 +1878,11 @@ menu = (
     pystray.MenuItem("Quit", quit_app)
 )
 icon = pystray.Icon(name=appname, icon=Image.open(icon_file), title=appname, menu=menu)
+
+
+atexit.register(quit_app)
+signal.signal(signal.SIGTERM, quit_app)
+signal.signal(signal.SIGINT, quit_app)
+
 
 icon.run(lambda thing: bot.start())
