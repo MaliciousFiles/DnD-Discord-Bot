@@ -20,11 +20,19 @@ from dotenv import get_key, set_key
 
 from ZSDR import roll_dice
 from monster_scraper import cache_monsters
+from AESCipher import AESCipher
 
 # TODO: make all embeds use the same formatting (periods, bolded inputs, etc)
 # TODO: make most set commands also work as querying
 
 SHARE_PREFIX = "https://app.adventurerscodex.com/share/"
+
+CREDENTIALS_KEY = "credentials"
+USERNAME_KEY = "username"
+PASSWORD_KEY = "password"
+ACCESS_TOKEN_KEY = "access_token"
+CHARACTER_KEY = "character"
+AES = AESCipher("fe6qeP57qs8bDljgiPtPlfQOGGJApZSyG4IsMwmsh7fiZrHWBSWTEcyUMZfWsD9w755cUuLX3lgYf0txxPkQTeSxas5FRMGw1vab9saAFjLj9cO9IeAjwwpGdbYy2S2lAK83drF0f11YpuztxyvNCGqXWa87bfgaDlfnNNZ07zTdxFkbBlogcrjig0so7QhgEfuZvmRrmEGD7V1heXPb3JipOPMfqjY3cUEPDolV0qTXufrMnyKAetbcoHkPDugc")
 
 DM_ROLE_KEY = "dm_role"
 PLAYER_ROLE_KEY = "player_role"
@@ -121,40 +129,38 @@ def populate_monsters():
         MONSTER_ID_BY_NAME[name] = key
         MONSTER_NAME_BY_ID[key] = name
 
+if __name__ == "__main__":
+    MONSTER_STATS_CACHED = MONSTER_STATBLOCKS_CACHED = False
+    while not MONSTER_STATS_CACHED or not MONSTER_STATBLOCKS_CACHED:
+        if not MONSTER_STATS_CACHED:
+            monster_stats_file = path.join(cache_dir, "stats.json")
+            if path.exists(monster_stats_file):
+                with open(monster_stats_file) as f:
+                    MONSTER_STATS = json.load(f)
+                MONSTER_STATS_CACHED = len(MONSTER_STATS) == MONSTER_COUNT
 
-MONSTER_STATS_CACHED = MONSTER_STATBLOCKS_CACHED = False
-while not MONSTER_STATS_CACHED or not MONSTER_STATBLOCKS_CACHED:
-    if not MONSTER_STATS_CACHED:
-        monster_stats_file = path.join(cache_dir, "stats.json")
-        if path.exists(monster_stats_file):
-            with open(monster_stats_file) as f:
-                MONSTER_STATS = json.load(f)
-            MONSTER_STATS_CACHED = len(MONSTER_STATS) == MONSTER_COUNT
-
-    if not MONSTER_STATBLOCKS_CACHED:
-        monster_statblocks_file = path.join(cache_dir, "statblocks.zip")
-        if path.exists(monster_statblocks_file):
-            with ZipFile(monster_statblocks_file) as zipfile:
-                for id_ in MONSTER_STATS:
+        if not MONSTER_STATBLOCKS_CACHED:
+            monster_statblocks_file = path.join(cache_dir, "statblocks.zip")
+            if path.exists(monster_statblocks_file):
+                with ZipFile(monster_statblocks_file) as zipfile:
                     MONSTER_STATBLOCKS_CACHED = len(zipfile.namelist()) == MONSTER_COUNT
 
-    if __name__ == '__main__':
         cache_monsters(not MONSTER_STATS_CACHED and monster_stats_file,
                        not MONSTER_STATBLOCKS_CACHED and path.dirname(monster_statblocks_file))
 
-populate_monsters()
+    populate_monsters()
 
-try:
-    __file__ = __file__
-except NameError:
-    __file__ = sys.executable
-icon_file = path.join(path.dirname(path.realpath(__file__)), "icon.png")
-
-with open(data_file) as f:
     try:
-        DATA = json.load(f)  # TODO: make this convert the proper string integers into integers
-    except json.JSONDecodeError:
-        DATA = {}
+        __file__ = __file__
+    except NameError:
+        __file__ = sys.executable
+    icon_file = path.join(path.dirname(path.realpath(__file__)), "icon.png")
+
+    with open(data_file) as f:
+        try:
+            DATA = json.load(f)  # TODO: make this convert the proper string integers into integers
+        except json.JSONDecodeError:
+            DATA = {}
 
 
 def save_data():
@@ -265,12 +271,12 @@ async def on_ready():
 
     for guild in bot.guilds:
         if str(guild.id) not in DATA:
-            DATA[str(guild.id)] = {}
+            DATA[str(guild.id)] = {CREDENTIALS_KEY: {}}
 
 
 @bot.event
 async def on_guild_join(guild):
-    DATA[str(guild.id)] = {}
+    DATA[str(guild.id)] = {CREDENTIALS_KEY: {}}
 
 
 @bot.event
@@ -296,33 +302,51 @@ async def check_dm(ctx: interactions.CommandContext, player: interactions.Member
 
 
 async def check_char_sheet(ctx: interactions.CommandContext, player: interactions.Member, self: bool = True):
-    if not str(player.id) in DATA[str(ctx.guild.id)]:
+    if not str(player.id) in DATA[str(ctx.guild.id)][CREDENTIALS_KEY]:
         await ctx.send(embeds=interactions.Embed(title="No Character Linked",
-                                                 description="Use `/account` to link your Adventurer's Codex account~~, and `/character` to set the character to use~~" if self else player.mention + " does not have an Adventurer's Codex character linked",
+                                                 description="Use `/account` to link your Adventurer's Codex account, and `/character` to set the character to use" if self else player.mention + " does not have an Adventurer's Codex character linked",
                                                  color=interactions.Color.red()), ephemeral=True)
         return False
 
     return True
 
 
-def get_ability(player_id: str, ability: str, saving_throw: bool = False):
-    if not (
-            ability == "Strength" or ability == "Dexterity" or ability == "Constitution" or ability == "Intelligence" or ability == "Wisdom" or ability == "Charisma"):
-        saving_throw = False
-
-    r = requests.get(SHARE_PREFIX + player_id)
-
-    match = re.search("[> ]" + ability + "[<\n].+?" + ("Saving Throw.+?" if saving_throw else "") + " ([+-] ?[0-9])", r.text,
-                         re.RegexFlag.DOTALL)
-
-    return (match.group(1).replace(" ", ""), "fa-check" in (r.text[match.span()[0]:match.span()[1]+50] if saving_throw else r.text[match.span()[0]-100:match.span()[1]]))
+def level_to_prof(level: int):
+    return min(2 + int((level-1)/4), 6)
 
 
-def get_stat(player_id: str, stat: str):
-    r = requests.get(SHARE_PREFIX + player_id)
+def score_to_mod(score: int):
+    return min(max(-5 + int(score/2), -5), 10)
 
-    pattern = re.compile("(?<=[> ]" + stat + "[<\n]).+? (-?[0-9])", re.RegexFlag.DOTALL)
-    return pattern.search(r.text).group(1)
+
+async def get_ability(ctx: interactions.CommandContext, ability: str, saving_throw: bool = False, spread_out: bool = False):
+    ability_score = ability == "Strength" or ability == "Dexterity" or ability == "Constitution" or ability == "Intelligence" or ability == "Wisdom" or ability == "Charisma"
+
+    stats = await query_AC(ctx, "{uuid}/"+("saving_throws" if saving_throw and ability_score else "ability_scores" if ability_score else "skills"))
+
+    if not stats: return
+
+    stat = [stat for stat in stats if stat['name'].lower() == ability.lower()][0]
+
+    level = (await query_AC(ctx, "characters/{uuid}/profile"))['level']
+    prof_mod = (await query_AC(ctx, "characters/{uuid}/other_stats"))['proficiencyModifier']
+
+    if 'proficiency' not in stat or stat['proficiency'] == False or stat['proficiency'] == 'not':
+        proficiency = 0
+    elif stat['proficiency'] == True or stat['proficiency'] == 'proficient':
+        proficiency = 1
+    elif stat['proficiency'] == 'expertise':
+        proficiency = 2
+
+
+    if spread_out:
+        mod = score_to_mod((stat['abilityScore'] if 'abilityScore' in stat else stat)['value']) + (
+            stat['modifier'] if 'modifier' in stat else 0)
+        prof = level_to_prof(level) + prof_mod
+        return ((f"+{mod}" if mod >= 0 else str(mod))+(f"+{prof}" if prof >= 0 else str(prof))*proficiency, proficiency, saving_throw and ability_score)
+    else:
+        mod = score_to_mod((stat['abilityScore'] if 'abilityScore' in stat else stat)['value']) + (stat['modifier'] if 'modifier' in stat else 0) + ((level_to_prof(level) + prof_mod) * proficiency)
+        return (f"+{mod}" if mod >= 0 else str(mod), proficiency, saving_throw and ability_score)
 
 
 def add_to_initiative(guild: interactions.Guild, name: str, initiative: int, modifier: int):
@@ -396,22 +420,92 @@ async def confirm_action(ctx, id: str, callback):
     await ctx.send(embeds=interactions.Embed(title=":warning: Confirm :warning:",
                                              description="Please confirm in the popup menu. This action **cannot be undone**!",
                                              color=interactions.Color.yellow()), ephemeral=True)
-    # embed = interactions.Embed(title=":warning: Confirm :warning:", description="Are you sure you want to continue? This action **cannot be undone**!\n\n*10*", color=interactions.Color.yellow())
-    # message = await ctx.send(embeds=embed, components=[interactions.Button(style=interactions.ButtonStyle.PRIMARY, label="Cancel", custom_id="confirm_cancel"), confirm_button])
 
-    # try:
-    #     i = 10
-    #     while i > 0:
-    #         embed.description = embed.description.replace(str(i), str(i-1))
-    #         await message.edit(embeds=embed)
-    #
-    #         i -= 1
-    #         await asyncio.sleep(1)
-    #
-    #     await message.delete()
-    # except interactions.api.error.LibraryException:
-    #     return
 
+async def set_access_token(ctx: interactions.CommandContext):
+    if await check_char_sheet(ctx, ctx.author):
+        creds = DATA[str(ctx.guild.id)][CREDENTIALS_KEY][str(ctx.author.id)]
+
+        r = requests.get("https://app.adventurerscodex.com/accounts/login/")
+        csrfmiddleware = r.text.split('"csrfmiddlewaretoken" value="')[1].split('">')[0]
+
+        cookies = r.cookies.get_dict()
+        headers = {
+            'referer': 'https://app.adventurerscodex.com'
+        }
+
+        data = {
+            'csrfmiddlewaretoken': csrfmiddleware,
+            'username': AES.decrypt(creds[USERNAME_KEY]),
+            'password': AES.decrypt(creds[PASSWORD_KEY]),
+        }
+        r = requests.post('https://app.adventurerscodex.com/accounts/login/', cookies=cookies, headers=headers,
+                          data=data, allow_redirects=False)
+
+        if r.status_code == 200: return False
+
+        cookies = r.cookies.get_dict()
+
+        r = requests.get('https://app.adventurerscodex.com' + r.headers['location'], cookies=cookies, headers=headers)
+
+        js_file = r.url + "main." + r.text.split('<script type="text/javascript" src="main.')[1].split('"></script>')[0]
+        r = requests.get(js_file)
+
+        client_id = r.text.split('client_id:"')[1].split('"}')[0]
+
+        params = {
+            'client_id': client_id,
+            'response_type': 'token'
+        }
+        r = requests.get(f"https://app.adventurerscodex.com/api/o/authorize/", cookies=cookies, headers=headers,
+                         params=params)
+        creds[ACCESS_TOKEN_KEY] = r.url.split('#access_token=')[1].split('&')[0]
+        save_data()
+
+        return True
+    return False
+
+
+async def query_AC(ctx: interactions.CommandContext, path: str, autocomplete: bool = False):
+    if not autocomplete: await ctx.defer(True)
+
+    async def error():
+        if not autocomplete: await ctx.send(embeds=interactions.Embed(title="Not Registered", description="Log into Adventurer's Codex using `/account` before doing this", color=interactions.Color.red()), ephemeral=True)
+
+    if str(ctx.author.id) not in DATA[str(ctx.guild.id)][CREDENTIALS_KEY]:
+        await error()
+        return
+
+    creds = DATA[str(ctx.guild.id)][CREDENTIALS_KEY][str(ctx.author.id)]
+
+    if ACCESS_TOKEN_KEY not in creds and not await set_access_token(ctx):
+        await error()
+        return
+
+    if '{uuid}' in path:
+        if CHARACTER_KEY not in creds:
+            if not autocomplete: await ctx.send(embeds=interactions.Embed(title="Not Registered", description="Set your character using `/character` before doing this!", color=interactions.Color.red()), ephemeral=True)
+            return
+        else:
+            path = path.replace('{uuid}', creds[CHARACTER_KEY])
+
+    status_code = 401
+    while status_code == 401:
+        headers = {
+            'referer': 'https://app.adventurerscodex.com',
+            'authorization': f'Bearer {creds[ACCESS_TOKEN_KEY]}'
+        }
+
+        response = requests.get(f"https://app.adventurerscodex.com/api/core/{path}", headers=headers)
+        status_code = response.status_code
+
+        if status_code == 401:
+            if not await set_access_token(ctx):
+                await error()
+                return
+
+    out = json.loads(response.text)
+    return out['results'] if 'results' in out else out
 
 @bot.command(
     name="help",
@@ -530,7 +624,8 @@ async def help(ctx: interactions.CommandContext, command: str = None, subcommand
         desc = """
         \\* = base command, has subcommands (`/help [command]` to show)
 
-        **account:** link your Adventurer's Codex character sheet.
+        **account:** link your Adventurer's Codex account.
+        **character:** set or get which character is in use.
         **dm-role:** set the role that represents DMs.
         **roll\\*:** roll a die (dice roller courtesy of CommanderZero)
         **init\\*:** base command for initiative order
@@ -568,33 +663,80 @@ async def dm_help(ctx: interactions.CommandContext):
     description="Submit your Adventurer's Codex credentials.",
     options=[
         interactions.Option(
-            name="link",
-            description="The share link of your character sheet.",
+            name="username",
+            description="Your Adventurer's Codex username",
             type=interactions.OptionType.STRING,
-            required=True,
+            required=True
+        ),
+        interactions.Option(
+            name="password",
+            description="Your Adventurer's Codex password",
+            type=interactions.OptionType.STRING,
+            required=True
         )
     ]
 )
-async def account_command(ctx: interactions.CommandContext, link: str):
-    # TODO make this take in account credentials instead, and figure out auth flow
-    value = link[-12: len(link)]
-    link = SHARE_PREFIX + value
+async def account_command(ctx: interactions.CommandContext, username: str, password: str):
+    creds = DATA[str(ctx.guild.id)][CREDENTIALS_KEY]
+    creds[str(ctx.author.id)] = {USERNAME_KEY: AES.encrypt(username), PASSWORD_KEY: AES.encrypt(password)}
 
-    r = None
-    try:
-        r = requests.get(link)
-    except requests.exceptions.ConnectionError:
-        pass
+    await ctx.defer(True)
 
-    if not r or r.status_code != 200:
-        await ctx.send(embeds=interactions.Embed(title="Invalid Link",
-                                                 description="Link does not match format of Adventurer's Codex 'share' links",
-                                                 color=interactions.Color.red()), ephemeral=True)
-    else:
-        await ctx.send(embeds=interactions.Embed(title="Link Saved", description="Character sheet link saved",
-                                                 color=interactions.Color.green()), ephemeral=True)
-        DATA[str(ctx.guild.id)][str(ctx.author.id)] = link[-12: len(link)]
-        save_data()
+    if not await set_access_token(ctx):
+        await ctx.send(embeds=interactions.Embed(title="Error", description="Invalid username or password, please try again", color=interactions.Color.red()), ephemeral=True)
+        return
+
+    save_data()
+
+    await ctx.send(
+        embeds=interactions.Embed(title="Success", description="Adventurer's Codex credentials saved. Make sure you use `/character` to set which character to user!",
+                                  color=interactions.Color.green()), ephemeral=True)
+
+
+@bot.command(
+    name="character",
+    description="Set or get which character is in use",
+    options=[
+        interactions.Option(
+            name="name",
+            description="The name of the character to set",
+            type=interactions.OptionType.STRING,
+            autocomplete=True
+        )
+    ]
+)
+async def character_command(ctx: interactions.CommandContext, name: str = None):
+    if name is None:
+        creds = DATA[str(ctx.guild.id)][CREDENTIALS_KEY][str(ctx.author.id)]
+
+        desc = f"Your active character is "+(chars[chars.keys()[chars.keys().index(creds[CHARACTER_KEY])]] if CHARACTER_KEY in creds else "not set")
+
+        await ctx.send(embeds=interactions.Embed(title="Character", description=desc, color=interactions.Color.blurple()), ephemeral=True)
+        return
+
+    response = await query_AC(ctx, '')
+
+    if not response: return
+
+    chars = {ch['name']: ch['uuid'] for ch in response if ch['type']['name'] == 'character'}
+
+    if name not in chars:
+        await ctx.send(embeds=interactions.Embed(title='Not Found', description='Could not find that character', color=interactions.Color.red()), ephemeral=True)
+        return
+
+    DATA[str(ctx.guild.id)][CREDENTIALS_KEY][str(ctx.author.id)][CHARACTER_KEY] = chars[name]
+    save_data()
+    await ctx.send(embeds=interactions.Embed(title='Character Set', description='Successfully set the character in use', color=interactions.Color.green()), ephemeral=True)
+
+@character_command.autocomplete("name")
+async def character_name_autocomplete(ctx: interactions.CommandContext, user_input: str = ""):
+    response = await query_AC(ctx, '', True)
+
+    if not response:
+        await ctx.populate([])
+        return
+
+    await ctx.populate([interactions.Choice(name=char['name'], value=char['name']) for char in response if char['type']['name'] == 'character' and char['name'].lower().startswith(user_input.lower())][:25])
 
 
 @bot.command(
@@ -698,11 +840,13 @@ async def roll(ctx: interactions.CommandContext, sub_command: str, ability: str 
 
         title = ability.replace("_", " ").title().replace("Of", "of")
 
-        ability = get_ability(DATA[str(ctx.guild.id)][str(user.id)], title, saving_throw)
+        ability = await get_ability(ctx, title, saving_throw, True)
+        if not ability: return
+
         dice = "1d20" + ability[0]
 
-        if saving_throw: title += " Saving Throw"
-        if ability[1]: title += " ✓"
+        if ability[2]: title += " Saving Throw"
+        if ability[1] > 0: title += " "+("✓"*ability[1])
 
     try:
         await ctx.send(
@@ -843,7 +987,7 @@ async def init_clear_callback(ctx: interactions.ComponentContext):
             msg = await chnl.get_message(int(message))
             await msg.delete()
 
-    del guild[INIT_EMBEDS_KEY]
+    if INIT_EMBEDS_KEY in guild: del guild[INIT_EMBEDS_KEY]
     save_data()
 
 
@@ -870,12 +1014,16 @@ async def add_player_to_initiative(ctx: interactions.CommandContext, player: int
     if any(value[0] == player.id for value in DATA[str(ctx.guild.id)][INITIATIVE_KEY]):
         return None
 
-    initiative = get_stat(DATA[str(ctx.guild.id)][str(player.id)], "Initiative")
-    dice = "1d20" + ("+" + initiative if int(initiative) >= 0 else initiative)
+    dexterity = (await get_ability(ctx, "Dexterity"))[0]
+    if not dexterity: return
+
+    initiative = (await query_AC(ctx, 'characters/{uuid}/other_stats'))['initiativeModifier'] + int(dexterity)
+
+    dice = "1d20" + (f"+{initiative}" if int(initiative) >= 0 else str(initiative))
 
     score = roll_dice(dice)[1]
 
-    while not add_to_initiative(ctx.guild, str(player.id), score, int(initiative)):
+    while not add_to_initiative(ctx.guild, str(player.id), score, initiative):
         score = roll_dice(dice)[1]
 
     return score
@@ -928,9 +1076,11 @@ async def init_add_player(ctx: interactions.CommandContext, player: interactions
 async def init_add_all_players(ctx: interactions.CommandContext):
     if not await check_dm(ctx, ctx.author): return
 
+    await ctx.defer(True)
+
     desc = ""
     for member in await ctx.guild.get_all_members():
-        if str(member.id) in DATA[str(ctx.guild.id)]:
+        if str(member.id) in DATA[str(ctx.guild.id)][CREDENTIALS_KEY]:
             score = await add_player_to_initiative(ctx, member)
             if not score: continue
 

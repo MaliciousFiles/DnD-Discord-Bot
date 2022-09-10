@@ -2,7 +2,7 @@ import json
 import os
 import tempfile
 from functools import reduce
-from time import sleep
+from time import time
 from zipfile import ZipFile
 
 from PIL import Image
@@ -60,8 +60,6 @@ def cache_monsters(stats_file, statblocks_directory):
     statblock_files = []
 
     def save(stat_dict):
-        driver.close()
-
         if stats_file:
             if not os.path.exists(stats_file):
                 with open(stats_file, "x"):
@@ -75,10 +73,12 @@ def cache_monsters(stats_file, statblocks_directory):
                 for file in statblock_files:
                     zipfile.write(file)
 
+        driver.close()
+
     if statblocks_directory:
         with ZipFile(os.path.join(statblocks_directory, "statblocks.zip")) as zipfile:
             statblock_files = zipfile.namelist()
-            zipfile.extractAll(statblocks_directory)
+            zipfile.extractall(statblocks_directory)
 
     prefs = {
         "download.default_directory": statblocks_directory,
@@ -86,10 +86,10 @@ def cache_monsters(stats_file, statblocks_directory):
     }
     options = webdriver.ChromeOptions()
     options.add_experimental_option("prefs", prefs)
-    # options.add_argument("--window-position=99999999,9999999")
+    options.add_argument("--window-position=99999999,9999999")
     options.add_argument("--window-size=1,1")
-    # options.add_argument("-WindowStyle Minimized")
-    # options.add_argument("-passthru")
+    options.add_argument("-WindowStyle Minimized")
+    options.add_argument("-passthru")
 
     driver = ChromeWithPrefs(options=options)
     driver.get("https://5e.tools/bestiary.html")
@@ -97,8 +97,10 @@ def cache_monsters(stats_file, statblocks_directory):
     with open("script.js") as f:
         script = f.read()
 
+    start = time()
     while len(driver.find_elements(by=By.CLASS_NAME, value="stats-name")) == 0:
-        pass
+        if time() - start > 5:  # try again after 5 seconds
+            driver.refresh()
 
     for e in driver.find_elements(by=By.CLASS_NAME, value="fltr__mini-pill--default-desel"):
         e.click()
@@ -110,6 +112,7 @@ def cache_monsters(stats_file, statblocks_directory):
         else:
             all_stats = {}
 
+    driver.minimize_window()
     try:
         for e in driver.find_elements(by=By.CLASS_NAME, value="lst__row"):
             while True:
