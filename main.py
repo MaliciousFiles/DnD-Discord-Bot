@@ -24,15 +24,19 @@ from AESCipher import AESCipher
 
 # TODO: make all embeds use the same formatting (periods, bolded inputs, etc)
 # TODO: make most set commands also work as querying
+# TODO: make all `list` commands use `/monster search`'s way of chaining embeds
+# TODO: deal if AC character gets deleted
 
-SHARE_PREFIX = "https://app.adventurerscodex.com/share/"
+CAMPAIGNS_KEY = "campaigns"
+CURRENT_CAMPAIGN_KEY = "current_campaign"
 
 CREDENTIALS_KEY = "credentials"
+AES = AESCipher("fe6qeP57qs8bDljgiPtPlfQOGGJApZSyG4IsMwmsh7fiZrHWBSWTEcyUMZfWsD9w755cUuLX3lgYf0txxPkQTeSxas5FRMGw1vab9saAFjLj9cO9IeAjwwpGdbYy2S2lAK83drF0f11YpuztxyvNCGqXWa87bfgaDlfnNNZ07zTdxFkbBlogcrjig0so7QhgEfuZvmRrmEGD7V1heXPb3JipOPMfqjY3cUEPDolV0qTXufrMnyKAetbcoHkPDugc")
 USERNAME_KEY = "username"
 PASSWORD_KEY = "password"
 ACCESS_TOKEN_KEY = "access_token"
-CHARACTER_KEY = "character"
-AES = AESCipher("fe6qeP57qs8bDljgiPtPlfQOGGJApZSyG4IsMwmsh7fiZrHWBSWTEcyUMZfWsD9w755cUuLX3lgYf0txxPkQTeSxas5FRMGw1vab9saAFjLj9cO9IeAjwwpGdbYy2S2lAK83drF0f11YpuztxyvNCGqXWa87bfgaDlfnNNZ07zTdxFkbBlogcrjig0so7QhgEfuZvmRrmEGD7V1heXPb3JipOPMfqjY3cUEPDolV0qTXufrMnyKAetbcoHkPDugc")
+
+CHARACTERS_KEY = "characters"
 
 DM_ROLE_KEY = "dm_role"
 PLAYER_ROLE_KEY = "player_role"
@@ -265,33 +269,63 @@ while error:
         os._exit(0)
 
 
+def get_data(guild: interactions.Guild, campaign: bool = True):
+    guild_data = DATA[str(guild.id)]
+    return guild_data[CAMPAIGNS_KEY][guild_data[CURRENT_CAMPAIGN_KEY]] if campaign else guild_data
+
+
+@bot.command()
+async def test(ctx):
+    for guild in bot.guilds:
+        if str(guild.id) == '815693946655211530':
+            for channel in guild.channels:
+                if str(channel.id) == '815695304908079164':
+                    await channel.join()
+                    break
+
+
 @bot.event
 async def on_ready():
     icon.visible = True
 
     for guild in bot.guilds:
         if str(guild.id) not in DATA:
-            DATA[str(guild.id)] = {CREDENTIALS_KEY: {}}
+            DATA[str(guild.id)] = {CREDENTIALS_KEY: {}, CAMPAIGNS_KEY: {}, CURRENT_CAMPAIGN_KEY: "", CHARACTERS_KEY: {}}
+
+
+    save_data()
 
 
 @bot.event
 async def on_guild_join(guild):
-    DATA[str(guild.id)] = {CREDENTIALS_KEY: {}}
+    DATA[str(guild.id)] = {CREDENTIALS_KEY: {}, CAMPAIGNS_KEY: {}, CURRENT_CAMPAIGN_KEY: "", CHARACTERS_KEY: {}}
+    save_data()
 
 
 @bot.event
 async def on_guild_remove(guild):
     del DATA[str(guild.id)]
+    save_data()
+
+interactions.AuditLogEvents.ROLE_DELETE
+
+
+@bot.event
+async def raw_socket_create(args: dict):
+    if 'role_id' in args:
+        guild = DATA[args['guild_id']]
+        if DM_ROLE_KEY in guild and guild[DM_ROLE_KEY] == args['role_id']:
+            del guild[DM_ROLE_KEY]
 
 
 async def check_dm(ctx: interactions.CommandContext, player: interactions.Member):
-    if DM_ROLE_KEY not in DATA[str(ctx.guild.id)]:
+    if DM_ROLE_KEY not in get_data(ctx.guild, False):
         await ctx.send(embeds=interactions.Embed(title="DM Role Not Found",
                                                  description="Use `/dm-role` to set a DM role doing this",
                                                  color=interactions.Color.red()), ephemeral=True)
         return False
 
-    dm_role_id = int(DATA[str(ctx.guild.id)][DM_ROLE_KEY])
+    dm_role_id = int(get_data(ctx.guild, False)[DM_ROLE_KEY])
     if dm_role_id not in player.roles:
         await ctx.send(embeds=interactions.Embed(title="Must be DM", description="You must have " + (
             await ctx.guild.get_role(dm_role_id)).mention + " to do this", color=interactions.Color.red()),
@@ -302,7 +336,7 @@ async def check_dm(ctx: interactions.CommandContext, player: interactions.Member
 
 
 async def check_char_sheet(ctx: interactions.CommandContext, player: interactions.Member, self: bool = True):
-    if not str(player.id) in DATA[str(ctx.guild.id)][CREDENTIALS_KEY]:
+    if not str(player.id) in get_data(ctx.guild, False)[CREDENTIALS_KEY]:
         await ctx.send(embeds=interactions.Embed(title="No Character Linked",
                                                  description="Use `/account` to link your Adventurer's Codex account, and `/character` to set the character to use" if self else player.mention + " does not have an Adventurer's Codex character linked",
                                                  color=interactions.Color.red()), ephemeral=True)
@@ -350,7 +384,7 @@ async def get_ability(ctx: interactions.CommandContext, ability: str, saving_thr
 
 
 def add_to_initiative(guild: interactions.Guild, name: str, initiative: int, modifier: int):
-    initiative_l = DATA[str(guild.id)][INITIATIVE_KEY]
+    initiative_l = get_data(guild, False)[INITIATIVE_KEY]
     new_value = [name, str(initiative), str(modifier)]
 
     if len(initiative_l) == 0:
@@ -371,8 +405,8 @@ def add_to_initiative(guild: interactions.Guild, name: str, initiative: int, mod
             index = len(initiative_l) - 1
             break
 
-    if index and index <= int(DATA[str(guild.id)][CURRENT_INITIATIVE_KEY]):
-        DATA[str(guild.id)][CURRENT_INITIATIVE_KEY] = int(DATA[str(guild.id)][CURRENT_INITIATIVE_KEY]) + 1
+    if index and index <= int(get_data(guild, False)[CURRENT_INITIATIVE_KEY]):
+        get_data(guild, False)[CURRENT_INITIATIVE_KEY] = int(get_data(guild, False)) + 1
         save_data()
     return index is not None
 
@@ -390,7 +424,7 @@ def get_spell_stat(text: str, stat: str):
 
 
 def format_date(guild: interactions.Guild, date):
-    dates = DATA[str(guild.id)][DATES_KEY]
+    dates = get_data(guild)[DATES_KEY]
 
     date = [int(s) for s in date.split("-")]
 
@@ -400,7 +434,7 @@ def format_date(guild: interactions.Guild, date):
 CALLBACK_IDS = {}
 
 
-async def confirm_action(ctx, id: str, callback):
+async def confirm_action(ctx, id: str, callback, data = None):
     confirm_message = "yes, I am sure"
 
     if id not in CALLBACK_IDS: CALLBACK_IDS[id] = 0
@@ -414,17 +448,16 @@ async def confirm_action(ctx, id: str, callback):
     @bot.modal(modal)
     async def modal_response(ctx: interactions.ComponentContext, response: str):
         if response.lower() == confirm_message.lower():
-            await callback(ctx)
+            if data == None: await callback(ctx)
+            else: await callback(ctx, data)
 
     await ctx.popup(modal)
-    await ctx.send(embeds=interactions.Embed(title=":warning: Confirm :warning:",
-                                             description="Please confirm in the popup menu. This action **cannot be undone**!",
-                                             color=interactions.Color.yellow()), ephemeral=True)
+    await ctx.defer(True)
 
 
 async def set_access_token(ctx: interactions.CommandContext):
     if await check_char_sheet(ctx, ctx.author):
-        creds = DATA[str(ctx.guild.id)][CREDENTIALS_KEY][str(ctx.author.id)]
+        creds = get_data(ctx.guild, False)[CREDENTIALS_KEY][str(ctx.author.id)]
 
         r = requests.get("https://app.adventurerscodex.com/accounts/login/")
         csrfmiddleware = r.text.split('"csrfmiddlewaretoken" value="')[1].split('">')[0]
@@ -459,7 +492,7 @@ async def set_access_token(ctx: interactions.CommandContext):
         }
         r = requests.get(f"https://app.adventurerscodex.com/api/o/authorize/", cookies=cookies, headers=headers,
                          params=params)
-        creds[ACCESS_TOKEN_KEY] = r.url.split('#access_token=')[1].split('&')[0]
+        creds[ACCESS_TOKEN_KEY] = AES.encrypt(r.url.split('#access_token=')[1].split('&')[0])
         save_data()
 
         return True
@@ -472,28 +505,29 @@ async def query_AC(ctx: interactions.CommandContext, path: str, autocomplete: bo
     async def error():
         if not autocomplete: await ctx.send(embeds=interactions.Embed(title="Not Registered", description="Log into Adventurer's Codex using `/account` before doing this", color=interactions.Color.red()), ephemeral=True)
 
-    if str(ctx.author.id) not in DATA[str(ctx.guild.id)][CREDENTIALS_KEY]:
+    if str(ctx.author.id) not in get_data(ctx.guild, False)[CREDENTIALS_KEY]:
         await error()
         return
 
-    creds = DATA[str(ctx.guild.id)][CREDENTIALS_KEY][str(ctx.author.id)]
+    creds = get_data(ctx.guild, False)[CREDENTIALS_KEY][str(ctx.author.id)]
+    chars = get_data(ctx.guild)[CHARACTERS_KEY]
 
     if ACCESS_TOKEN_KEY not in creds and not await set_access_token(ctx):
         await error()
         return
 
     if '{uuid}' in path:
-        if CHARACTER_KEY not in creds:
+        if str(ctx.author.id) not in chars:
             if not autocomplete: await ctx.send(embeds=interactions.Embed(title="Not Registered", description="Set your character using `/character` before doing this!", color=interactions.Color.red()), ephemeral=True)
             return
         else:
-            path = path.replace('{uuid}', creds[CHARACTER_KEY])
+            path = path.replace('{uuid}', chars[str(ctx.author.id)])
 
     status_code = 401
     while status_code == 401:
         headers = {
             'referer': 'https://app.adventurerscodex.com',
-            'authorization': f'Bearer {creds[ACCESS_TOKEN_KEY]}'
+            'authorization': f'Bearer {AES.decrypt(creds[ACCESS_TOKEN_KEY])}'
         }
 
         response = requests.get(f"https://app.adventurerscodex.com/api/core/{path}", headers=headers)
@@ -620,12 +654,22 @@ async def help(ctx: interactions.CommandContext, command: str = None, subcommand
         **statblock:** get the statblock for a specific monster
         **search:** search for a monster with the given criteria
         """
+    elif command == "campaign":
+        desc="""
+        [DM] = DM only
+        
+        **add:** create a new campaign [DM]
+        **remove:** remove a campaign ***CANNOT BE UNDONE*** [DM]
+        **set:** set the current campaign [DM]
+        **list:** list every campaign, with the current one bolded
+        """
     else:
         desc = """
         \\* = base command, has subcommands (`/help [command]` to show)
 
         **account:** link your Adventurer's Codex account.
         **character:** set or get which character is in use.
+        **campaign\\*:** base command for modifying the active campaign.
         **dm-role:** set the role that represents DMs.
         **roll\\*:** roll a die (dice roller courtesy of CommanderZero)
         **init\\*:** base command for initiative order
@@ -677,8 +721,11 @@ async def dm_help(ctx: interactions.CommandContext):
     ]
 )
 async def account_command(ctx: interactions.CommandContext, username: str, password: str):
-    creds = DATA[str(ctx.guild.id)][CREDENTIALS_KEY]
+    creds = get_data(ctx.guild, False)[CREDENTIALS_KEY]
     creds[str(ctx.author.id)] = {USERNAME_KEY: AES.encrypt(username), PASSWORD_KEY: AES.encrypt(password)}
+
+    chars = get_data(ctx.guild)[CHARACTERS_KEY]
+    if str(ctx.author.id) in chars: del chars[str(ctx.author.id)]
 
     await ctx.defer(True)
 
@@ -706,25 +753,25 @@ async def account_command(ctx: interactions.CommandContext, username: str, passw
     ]
 )
 async def character_command(ctx: interactions.CommandContext, name: str = None):
-    if name is None:
-        creds = DATA[str(ctx.guild.id)][CREDENTIALS_KEY][str(ctx.author.id)]
-
-        desc = f"Your active character is "+(chars[chars.keys()[chars.keys().index(creds[CHARACTER_KEY])]] if CHARACTER_KEY in creds else "not set")
-
-        await ctx.send(embeds=interactions.Embed(title="Character", description=desc, color=interactions.Color.blurple()), ephemeral=True)
-        return
-
     response = await query_AC(ctx, '')
 
     if not response: return
 
-    chars = {ch['name']: ch['uuid'] for ch in response if ch['type']['name'] == 'character'}
+    ac_chars = {ch['name']: ch['uuid'] for ch in response if ch['type']['name'] == 'character'}
+    chars = get_data(ctx.guild)[CHARACTERS_KEY]
 
-    if name not in chars:
+    if name is None:
+
+        desc = f"Your active character is "+(("**"+{value: key for key,value in ac_chars.items()}[chars[str(ctx.author.id)]]+"**") if str(ctx.author.id) in chars else "not set")
+
+        await ctx.send(embeds=interactions.Embed(title="Character", description=desc, color=interactions.Color.blurple()), ephemeral=True)
+        return
+
+    if name not in ac_chars:
         await ctx.send(embeds=interactions.Embed(title='Not Found', description='Could not find that character', color=interactions.Color.red()), ephemeral=True)
         return
 
-    DATA[str(ctx.guild.id)][CREDENTIALS_KEY][str(ctx.author.id)][CHARACTER_KEY] = chars[name]
+    chars[str(ctx.author.id)] = ac_chars[name]
     save_data()
     await ctx.send(embeds=interactions.Embed(title='Character Set', description='Successfully set the character in use', color=interactions.Color.green()), ephemeral=True)
 
@@ -737,6 +784,121 @@ async def character_name_autocomplete(ctx: interactions.CommandContext, user_inp
         return
 
     await ctx.populate([interactions.Choice(name=char['name'], value=char['name']) for char in response if char['type']['name'] == 'character' and char['name'].lower().startswith(user_input.lower())][:25])
+
+
+@bot.command(
+    name="campaign",
+    description="Base command for campaigns."
+)
+async def campaign_command(ctx: interactions.CommandContext):
+    pass
+
+
+@campaign_command.subcommand(
+    name="add",
+    description="Create a new campaign.",
+    options=[
+        interactions.Option(
+            name="name",
+            description="The name of the campaign",
+            type=interactions.OptionType.STRING,
+            required=True
+        )
+    ]
+)
+async def campaign_add(ctx: interactions.CommandContext, name: str):
+    if not await check_dm(ctx, ctx.author): return
+
+    if name in get_data(ctx.guild, False):
+        await ctx.send(embeds=interactions.Embed(title="Already Exists", description="A campaign by that name already exists", color=interactions.Color.red()), ephemeral=True)
+        return
+
+    get_data(ctx.guild, False)[CAMPAIGNS_KEY][name] = {}
+    save_data()
+
+    await ctx.send(embeds=interactions.Embed(title="Campaign Added", description=f"New campaign successfully added. `/campaign set {name}` to set it as the active campaign", color=interactions.Color.green()), ephemeral=True)
+
+
+async def remove_campaign_callback(ctx: interactions.ComponentContext, name: str):
+    del get_data(ctx.guild, False)[CAMPAIGNS_KEY][name]
+    if get_data(ctx.guild, False)[CURRENT_CAMPAIGN_KEY] == name:
+        get_data(ctx.guild, False)[CURRENT_CAMPAIGN_KEY] = ""
+
+    save_data()
+
+    await ctx.send(embeds=interactions.Embed(title="Campaign Removed",
+                                             description=f"**{name}** successfully deleted",
+                                             color=interactions.Color.green()), ephemeral=True)
+
+
+@campaign_command.subcommand(
+    name="remove",
+    description="Remove a campaign. CANNOT BE UNDONE",
+    options=[
+        interactions.Option(
+            name="name",
+            description="The name of the campaign. CANNOT BE UNDONE",
+            type=interactions.OptionType.STRING,
+            required=True,
+            autocomplete=True
+        )
+    ]
+)
+async def campaign_remove(ctx: interactions.CommandContext, name: str):
+    if not await check_dm(ctx, ctx.author): return
+
+    if name not in get_data(ctx.guild, False)[CAMPAIGNS_KEY]:
+        await ctx.send(
+            embeds=interactions.Embed(title="Doesn't Exist", description="Cannot find a campaign by that name",
+                                      color=interactions.Color.red()), ephemeral=True)
+        return
+
+    await confirm_action(ctx, f'campaign_remove', remove_campaign_callback, name)
+
+
+@campaign_command.subcommand(
+    name="set",
+    description="Set the current campaign",
+    options=[
+        interactions.Option(
+            name="name",
+            description="The name of the campaign",
+            type=interactions.OptionType.STRING,
+            required=True,
+            autocomplete=True
+        )
+    ]
+)
+async def campaign_set(ctx: interactions.CommandContext, name: str):
+    if not await check_dm(ctx, ctx.author): return
+
+    if name not in get_data(ctx.guild, False)[CAMPAIGNS_KEY]:
+        await ctx.send(
+            embeds=interactions.Embed(title="Doesn't Exist", description="Cannot find a campaign by that name",
+                                      color=interactions.Color.red()), ephemeral=True)
+        return
+
+    get_data(ctx.guild, False)[CURRENT_CAMPAIGN_KEY] = name
+    save_data()
+
+    await ctx.send(embeds=interactions.Embed(title="Campaign Set",
+                                             description=f"Successfully set current campaign to **{name}**",
+                                             color=interactions.Color.green()), ephemeral=True)
+
+
+@campaign_command.subcommand(
+    name="list",
+    description="List every campaign, with the current one bolded"
+)
+async def campaign_list(ctx: interactions.CommandContext):
+    await ctx.send(embeds=interactions.Embed(title="Campaigns",
+                                             description="\n".join([(f"**{name}**" if name == get_data(ctx.guild, False)[CURRENT_CAMPAIGN_KEY] else name) for name in get_data(ctx.guild, False)[CAMPAIGNS_KEY].keys()]),
+                                             color=interactions.Color.blurple()), ephemeral=True)
+
+
+@campaign_command.autocomplete("name")
+async def autocomplete_campaign_name(ctx: interactions.CommandContext, user_input: str = ""):
+    await ctx.populate([interactions.Choice(name=name, value=name) for name in get_data(ctx.guild, False)[CAMPAIGNS_KEY].keys() if name.lower().startswith(user_input.lower())][:25])
 
 
 @bot.command(
@@ -753,7 +915,7 @@ async def character_name_autocomplete(ctx: interactions.CommandContext, user_inp
     ]
 )
 async def dm_role(ctx: interactions.CommandContext, role: interactions.Role):
-    DATA[str(ctx.guild.id)][DM_ROLE_KEY] = str(role.id)
+    get_data(ctx.guild, False)[DM_ROLE_KEY] = str(role.id)
     save_data()
     await ctx.send(embeds=interactions.Embed(title="Role Set", description="DM role set to " + role.mention,
                                              color=interactions.Color.green()), ephemeral=True)
@@ -851,7 +1013,7 @@ async def roll(ctx: interactions.CommandContext, sub_command: str, ability: str 
     try:
         await ctx.send(
             embeds=interactions.Embed(title=title, description=roll_dice(dice)[0], color=interactions.Color.blurple()),
-            ephemeral=player is not None)
+            ephemeral=player is None)
     except RuntimeError:
         await ctx.send(embeds=interactions.Embed(title="Error",
                                                  description="Dice error, make sure you follow the formatting rules. `/roll help` for more info",
@@ -863,14 +1025,14 @@ async def roll(ctx: interactions.CommandContext, sub_command: str, ability: str 
     description="Initiative base command."
 )
 async def init(ctx: interactions.CommandContext):
-    if INITIATIVE_KEY not in DATA[str(ctx.guild.id)]:
-        DATA[str(ctx.guild.id)][INITIATIVE_KEY] = []
-    if CURRENT_INITIATIVE_KEY not in DATA[str(ctx.guild.id)]:
-        DATA[str(ctx.guild.id)][CURRENT_INITIATIVE_KEY] = 0
+    if INITIATIVE_KEY not in get_data(ctx.guild):
+        get_data(ctx.guild)[INITIATIVE_KEY] = []
+    if CURRENT_INITIATIVE_KEY not in get_data(ctx.guild):
+        get_data(ctx.guild)[CURRENT_INITIATIVE_KEY] = 0
 
 
 async def get_init_desc(ctx: interactions.CommandContext):
-    guild = DATA[str(ctx.guild.id)]
+    guild = get_data(ctx.guild)
 
     desc = ""
 
@@ -903,7 +1065,7 @@ async def get_init_desc(ctx: interactions.CommandContext):
 async def init_list(ctx: interactions.CommandContext, public: bool = False):
     if public and not await check_dm(ctx, ctx.author): return
 
-    guild = DATA[str(ctx.guild.id)]
+    guild = get_data(ctx.guild)
 
     components = []
     if public:
@@ -926,7 +1088,7 @@ async def init_list(ctx: interactions.CommandContext, public: bool = False):
 
 
 async def update_init_embeds(ctx: interactions.CommandContext):
-    guild = DATA[str(ctx.guild.id)]
+    guild = get_data(ctx.guild)
     if INIT_EMBEDS_KEY in guild:
         for channel, message in guild[INIT_EMBEDS_KEY].items():
             chnl = next((c for c in (await ctx.guild.get_all_channels()) if str(c.id) == channel), None)
@@ -946,7 +1108,11 @@ async def update_init_embeds(ctx: interactions.CommandContext):
 async def init_next(ctx):
     if not await check_dm(ctx, ctx.author): return
 
-    guild = DATA[str(ctx.guild.id)]
+    guild = get_data(ctx.guild)
+
+    if len(guild[INITIATIVE_KEY]) == 0:
+        await ctx.send(embeds=interactions.Embed(title="Initiative Empty", description="Initiative is currently empty. Use `/init add [subcommand]` to add something", color=interactions.Color.red()), ephemeral=True)
+        return
 
     current = guild[CURRENT_INITIATIVE_KEY] = (int(guild[CURRENT_INITIATIVE_KEY]) + 1) % len(guild[INITIATIVE_KEY])
 
@@ -971,14 +1137,15 @@ async def init_next(ctx):
 
 
 async def init_clear_callback(ctx: interactions.ComponentContext):
-    del DATA[str(ctx.guild.id)][INITIATIVE_KEY]
-    del DATA[str(ctx.guild.id)][CURRENT_INITIATIVE_KEY]
+    guild = get_data(ctx.guild)
+
+    del guild[INITIATIVE_KEY]
+    del guild[CURRENT_INITIATIVE_KEY]
     save_data()
     await ctx.send(embeds=interactions.Embed(title="Initiative Cleared",
                                              description="Initiative has been successfully cleared",
                                              color=interactions.Color.green()), ephemeral=True)
 
-    guild = DATA[str(ctx.guild.id)]
     if INIT_EMBEDS_KEY in guild:
         for channel, message in guild[INIT_EMBEDS_KEY].items():
             chnl = next((c for c in (await ctx.guild.get_all_channels()) if str(c.id) == channel), None)
@@ -1011,7 +1178,7 @@ async def init_add(ctx: interactions.CommandContext):
 
 
 async def add_player_to_initiative(ctx: interactions.CommandContext, player: interactions.Member):
-    if any(value[0] == player.id for value in DATA[str(ctx.guild.id)][INITIATIVE_KEY]):
+    if any(value[0] == player.id for value in get_data(ctx.guild)[INITIATIVE_KEY]):
         return None
 
     dexterity = (await get_ability(ctx, "Dexterity"))[0]
@@ -1052,7 +1219,7 @@ async def init_add_player(ctx: interactions.CommandContext, player: interactions
 
     exists = True
     if score:
-        exists = any(value[0] == player.id for value in DATA[str(ctx.guild.id)][INITIATIVE_KEY])
+        exists = any(value[0] == player.id for value in get_data(ctx.guild)[INITIATIVE_KEY])
     else:
         score = await add_player_to_initiative(ctx, player)
 
@@ -1080,7 +1247,7 @@ async def init_add_all_players(ctx: interactions.CommandContext):
 
     desc = ""
     for member in await ctx.guild.get_all_members():
-        if str(member.id) in DATA[str(ctx.guild.id)][CREDENTIALS_KEY]:
+        if str(member.id) in get_data(ctx.guild)[CREDENTIALS_KEY]:
             score = await add_player_to_initiative(ctx, member)
             if not score: continue
 
@@ -1135,7 +1302,7 @@ async def init_add_other(ctx: interactions.CommandContext, name: str, initiative
                                                  color=interactions.Color.red()), ephemeral=True)
         return
 
-    if any(value[0] == name for value in DATA[str(ctx.guild.id)][INITIATIVE_KEY]):
+    if any(value[0] == name for value in get_data(ctx.guild)[INITIATIVE_KEY]):
         await ctx.send(embeds=interactions.Embed(title="Already Added",
                                                  description="'" + name + "' is already in the initiative order. Use `/init remove " + name + "` to remove it",
                                                  color=interactions.Color.red()), ephemeral=True)
@@ -1184,7 +1351,7 @@ async def init_remove(ctx: interactions.CommandContext):
 async def init_remove_player(ctx: interactions.CommandContext, player: interactions.Member):
     if not await check_dm(ctx, ctx.author): return
 
-    initiative_l = DATA[str(ctx.guild.id)][INITIATIVE_KEY]
+    initiative_l = get_data(ctx.guild)[INITIATIVE_KEY]
 
     if not any(value[0] == player.id for value in initiative_l):
         await ctx.send(embeds=interactions.Embed(title="Doesn't Exist",
@@ -1219,7 +1386,7 @@ async def init_remove_player(ctx: interactions.CommandContext, player: interacti
 async def init_remove_other(ctx: interactions.CommandContext, name: str):
     if not await check_dm(ctx, ctx.author): return
 
-    initiative_l = DATA[str(ctx.guild.id)][INITIATIVE_KEY]
+    initiative_l = get_data(ctx.guild)[INITIATIVE_KEY]
 
     if not any(value[0] == name for value in initiative_l):
         await ctx.send(embeds=interactions.Embed(title="Doesn't Exist",
@@ -1673,8 +1840,8 @@ EXISTING_DATE_OPTION = interactions.Option(
     description="Base command for modifying the timeline."
 )
 async def date_command(ctx: interactions.CommandContext):
-    if DATES_KEY not in DATA[str(ctx.guild.id)]:
-        DATA[str(ctx.guild.id)][DATES_KEY] = {TIMELINE_KEY: {}}
+    if DATES_KEY not in get_data(ctx.guild):
+        get_data(ctx.guild)[DATES_KEY] = {TIMELINE_KEY: {}}
 
 
 async def check_date(ctx: interactions.CommandContext, day: int, month: str, year: int):
@@ -1698,9 +1865,9 @@ async def convert_and_check_date(ctx: interactions.CommandContext, date: str):
         date = date.replace(",", "").split(" ")
         return await check_date(ctx, int(date[0]), date[1], int(date[2]))
     else:
-        dates = DATA[str(ctx.guild.id)][DATES_KEY]
+        dates = get_data(ctx.guild)[DATES_KEY]
         await ctx.send(embeds=interactions.Embed(title="Error",
-                                                 description=f"Date must follow the format 'day month year' or 'days CS[campagin start]/CD[current date]'.\n\n__Examples:__ '1 {MONTHS[0]} 1{' ' + dates[CALENDAR_KEY] if CALENDAR_KEY in dates else ''}', '5 CS', '-5 CD'.",
+                                                 description=f"Date must follow the format 'day month year' or 'days CS[campaign start]/CD[current date]'.\n\n__Examples:__ '1 {MONTHS[0]} 1{' ' + dates[CALENDAR_KEY] if CALENDAR_KEY in dates else ''}', '5 CS', '-5 CD'.",
                                                  color=interactions.Color.red()), ephemeral=True)
 
         return None
@@ -1726,7 +1893,7 @@ async def relative_id_to_key(ctx: interactions.CommandContext, relative: str):
     elif relative == "CS":
         key = CAMPAIGN_START_KEY
 
-    if key and key not in DATA[str(ctx.guild.id)][DATES_KEY]:
+    if key and key not in get_data(ctx.guild)[DATES_KEY]:
         await ctx.send(embeds=interactions.Embed(title="Error", description=f"{'Current' if key == CURRENT_DATE_KEY else 'Campaign start'} date not set! `/date " + (
             "set" if key == CURRENT_DATE_KEY else "origin") + "` to set it", color=interactions.Color.red()),
                        ephemeral=True)
@@ -1739,7 +1906,7 @@ async def relative_to_absolute_date(ctx: interactions.CommandContext, days: int,
     relative_key = await relative_id_to_key(ctx, relative)
     if not relative_key: return None
 
-    date = DATA[str(ctx.guild.id)][DATES_KEY][relative_key].split("-")
+    date = get_data(ctx.guild)[DATES_KEY][relative_key].split("-")
     day = int(date[0])
     month = int(date[1])
     year = int(date[2])
@@ -1774,7 +1941,7 @@ async def set_date_command(ctx: interactions.CommandContext, days: int, relative
     date = await check_new_date(ctx, day, month, year, days, relative)
     if not date: return None
 
-    DATA[str(ctx.guild.id)][DATES_KEY][key] = date
+    get_data(ctx.guild)[DATES_KEY][key] = date
     save_data()
     return date
 
@@ -1787,7 +1954,7 @@ async def set_date_command(ctx: interactions.CommandContext, days: int, relative
 async def date_origin(ctx: interactions.CommandContext, days: int = None, relative: str = None, day: int = None,
                       month: str = None, year: int = None):
     if not (days or relative or day or month or year):
-        dates = DATA[str(ctx.guild.id)][DATES_KEY]
+        dates = get_data(ctx.guild)[DATES_KEY]
         if CAMPAIGN_START_KEY in dates:
             await ctx.send(embeds=interactions.Embed(title="Campaign Start", description="Campaign start date is "+format_date(ctx.guild, dates[CAMPAIGN_START_KEY]), color=interactions.Color.blurple()), ephemeral=True)
         else:
@@ -1812,7 +1979,7 @@ async def date_origin(ctx: interactions.CommandContext, days: int = None, relati
 async def date_current(ctx: interactions.CommandContext, days: int = None, relative: str = None, day: int = None,
                        month: str = None, year: int = None):
     if not (days or relative or day or month or year):
-        dates = DATA[str(ctx.guild.id)][DATES_KEY]
+        dates = get_data(ctx.guild)[DATES_KEY]
         if CURRENT_DATE_KEY in dates:
             await ctx.send(embeds=interactions.Embed(title="Current Date", description="Current date is " + format_date(ctx.guild, dates[CURRENT_DATE_KEY]),
                                                      color=interactions.Color.blurple()), ephemeral=True)
@@ -1852,9 +2019,9 @@ async def date_next(ctx: interactions.CommandContext, downtime: bool = False):
                                                  color=interactions.Color.green()), ephemeral=True)
 
         if downtime:
-            if MONEY_KEY not in DATA[str(ctx.guild.id)]: return
+            if MONEY_KEY not in get_data(ctx.guild): return
 
-            money = DATA[str(ctx.guild.id)][MONEY_KEY]
+            money = get_data(ctx.guild)[MONEY_KEY]
 
             money_gained = {}
 
@@ -1896,7 +2063,7 @@ async def date_next(ctx: interactions.CommandContext, downtime: bool = False):
 async def date_calendar(ctx: interactions.CommandContext, suffix: str = None):
     if not await check_dm(ctx, ctx.author): return
 
-    dates = DATA[str(ctx.guild.id)][DATES_KEY]
+    dates = get_data(ctx.guild)[DATES_KEY]
     if not suffix:
         if CALENDAR_KEY in dates:
             await ctx.send(embed=interactions.Embed(title="Calendar", description="The callendar suffix is "+dtes[CALENDAR_KEY], color=interactions.Color.blurple()), ephemeral=True)
@@ -1917,7 +2084,8 @@ async def date_calendar(ctx: interactions.CommandContext, suffix: str = None):
     description="Manage events on the timeline"
 )
 async def date_event(ctx: interactions.CommandContext):
-    pass
+    if TIMELINE_KEY not in get_data(ctx.guild)[DATES_KEY]:
+        get_data(ctx.guild)[DATES_KEY][TIMELINE_KEY] = {}
 
 
 @date_event.subcommand(
@@ -1938,14 +2106,14 @@ async def date_event(ctx: interactions.CommandContext):
                 )
             ] + NEW_DATE_OPTIONS
 )
-async def date_event_add(ctx: interactions.CommandContext, title: str, description: str, day: int, month: str,
-                         year: int, days: int, relative: str):
+async def date_event_add(ctx: interactions.CommandContext, title: str = None, description: str = None, day: int = None, month: str = None,
+                         year: int = None, days: int = None, relative: str = None):
     if not await check_dm(ctx, ctx.author): return
 
     date = await check_new_date(ctx, day, month, year, days, relative)
     if not date: return
 
-    timeline = DATA[str(ctx.guild.id)][DATES_KEY][TIMELINE_KEY]
+    timeline = get_data(ctx.guild)[DATES_KEY][TIMELINE_KEY]
 
     if date not in timeline:
         timeline[date] = {}
@@ -1957,6 +2125,7 @@ async def date_event_add(ctx: interactions.CommandContext, title: str, descripti
         return
 
     timeline[date][title] = description
+    save_data()
     await ctx.send(embeds=interactions.Embed(title="Event Added",
                                              description="**" + title + "** has been added on **" + format_date(
                                                  ctx.guild, date) + "**", color=interactions.Color.green()),
@@ -1983,7 +2152,7 @@ async def date_event_remove(ctx: interactions.CommandContext, title: str, date: 
     date = await convert_and_check_date(ctx, date)
     if not date: return
 
-    timeline = DATA[str(ctx.guild.id)][DATES_KEY][TIMELINE_KEY]
+    timeline = get_data(ctx.guild)[DATES_KEY][TIMELINE_KEY]
 
     if date not in timeline or title not in timeline[date]:
         await ctx.send(embeds=interactions.Embed(title="Doesn't Exist",
@@ -1992,6 +2161,7 @@ async def date_event_remove(ctx: interactions.CommandContext, title: str, date: 
         return
 
     del timeline[date][title]
+    save_data()
     await ctx.send(embeds=interactions.Embed(title="Event Removed",
                                              description="**" + title + "** has been removed from **" + format_date(
                                                  ctx.guild, date) + "**", color=interactions.Color.green()),
@@ -2007,7 +2177,7 @@ async def date_event_list(ctx: interactions.CommandContext, date: str):
     date = await convert_and_check_date(ctx, date)
     if not date: return
 
-    timeline = DATA[str(ctx.guild.id)][DATES_KEY][TIMELINE_KEY]
+    timeline = get_data(ctx.guild)[DATES_KEY][TIMELINE_KEY]
 
     events = ""
 
@@ -2023,10 +2193,8 @@ async def date_event_list(ctx: interactions.CommandContext, date: str):
                                              color=interactions.Color.blurple()), ephemeral=True)
 
 
-async def clear_date_events_callback(ctx: interactions.ComponentContext):
-    date = ctx.custom_id.split("|")[1]
-
-    del DATA[str(ctx.guild.id)][DATES_KEY][TIMELINE_KEY][date]
+async def clear_date_events_callback(ctx: interactions.ComponentContext, date: str):
+    del get_data(ctx.guild)[DATES_KEY][TIMELINE_KEY][date]
     save_data()
 
     await ctx.send(embeds=interactions.Embed(title="Events Cleared",
@@ -2045,18 +2213,18 @@ async def date_event_clear(ctx: interactions.CommandContext, date: str):
     date = await convert_and_check_date(ctx, date)
     if not date: return
 
-    timeline = DATA[str(ctx.guild.id)][DATES_KEY][TIMELINE_KEY]
+    timeline = get_data(ctx.guild)[DATES_KEY][TIMELINE_KEY]
 
     if date not in timeline or len(timeline[date]) == 0:
         await ctx.send(embeds=interactions.Embed(title="No Events", description="No events found!",
                                                  color=interactions.Color.red()), ephemeral=True)
         return
 
-    await confirm_action(ctx, f"clear_date_events|{date}|", clear_date_events_callback)
+    await confirm_action(ctx, f"clear_date_events", clear_date_events_callback, date)
 
 
 async def clear_all_events_callback(ctx: interactions.ComponentContext):
-    del DATA[str(ctx.guild.id)][DATES_KEY][TIMELINE_KEY]
+    del get_data(ctx.guild)[DATES_KEY][TIMELINE_KEY]
     save_data()
 
     await ctx.send(embeds=interactions.Embed(title="Events Cleared",
@@ -2088,7 +2256,7 @@ async def date_event_clear_all(ctx: interactions.CommandContext):
     ]
 )
 async def date_event_search(ctx: interactions.CommandContext, title: str):
-    timeline = DATA[str(ctx.guild.id)][DATES_KEY][TIMELINE_KEY]
+    timeline = get_data(ctx.guild)[DATES_KEY][TIMELINE_KEY]
 
     desc = ""
 
@@ -2111,7 +2279,11 @@ async def date_event_search(ctx: interactions.CommandContext, title: str):
 @date_event.autocomplete(
     "date")  # TODO: a way to make this work only for date_event_remove and take into accout the `event` param?
 async def autocomplete_date(ctx: interactions.CommandContext, user_input: str = ""):
-    dates = [format_date(ctx.guild, date) for date in DATA[str(ctx.guild.id)][DATES_KEY][TIMELINE_KEY]]
+    if TIMELINE_KEY not in get_data(ctx.guild)[DATES_KEY]:
+        await ctx.populate([])
+        return
+
+    dates = [format_date(ctx.guild, date) for date in get_data(ctx.guild)[DATES_KEY][TIMELINE_KEY]]
     if re.match("-?[0-9]+ ?", user_input):
         space = "" if user_input.endswith(" ") else " "
         dates = [user_input + space + "CS", user_input + space + "CD"] + dates
@@ -2122,7 +2294,7 @@ async def autocomplete_date(ctx: interactions.CommandContext, user_input: str = 
 
 @date_event.autocomplete("title")
 async def autocomplete_event_title(ctx: interactions.CommandContext, user_input: str = ""):
-    timeline = DATA[str(ctx.guild.id)][DATES_KEY][TIMELINE_KEY]
+    timeline = get_data(ctx.guild)[DATES_KEY][TIMELINE_KEY]
     titles = set()
 
     for date in timeline:
@@ -2137,7 +2309,7 @@ async def autocomplete_event_title(ctx: interactions.CommandContext, user_input:
     description="Base command for money tracking."
 )
 async def money_command(ctx: interactions.CommandContext):
-    guild = DATA[str(ctx.guild.id)]
+    guild = get_data(ctx.guild)
 
     if MONEY_KEY not in guild:
         guild[MONEY_KEY] = {}
@@ -2150,7 +2322,7 @@ async def money_command(ctx: interactions.CommandContext):
     description="Command for daily expense tracking."
 )
 async def money_expense(ctx: interactions.CommandContext):
-    money = DATA[str(ctx.guild.id)][MONEY_KEY]
+    money = get_data(ctx.guild)[MONEY_KEY]
     if EXPENSES_KEY not in money:
         money[EXPENSES_KEY] = {}
 
@@ -2216,7 +2388,7 @@ async def money_expense_add(ctx: interactions.CommandContext, title: str, descri
                                                  color=interactions.Color.red()), ephemeral=True)
         return
 
-    expenses = DATA[str(ctx.guild.id)][MONEY_KEY][EXPENSES_KEY]
+    expenses = get_data(ctx.guild)[MONEY_KEY][EXPENSES_KEY]
 
     if any([title.lower() == e[0].lower() for e in expenses[str(ctx.author.id)]]):
         await ctx.send(
@@ -2245,7 +2417,7 @@ async def money_expense_add(ctx: interactions.CommandContext, title: str, descri
     ]
 )
 async def money_expense_remove(ctx: interactions.CommandContext, title: str):
-    expenses = DATA[str(ctx.guild.id)][MONEY_KEY][EXPENSES_KEY][str(ctx.author.id)]
+    expenses = get_data(ctx.guild)[MONEY_KEY][EXPENSES_KEY][str(ctx.author.id)]
 
     for expense in expenses:
         if expense[0].lower() == title.lower():
@@ -2275,7 +2447,7 @@ async def money_expense_list(ctx: interactions.CommandContext, player: interacti
     user = player if player else ctx.author
 
     try:
-        expenses = DATA[str(ctx.guild.id)][MONEY_KEY][EXPENSES_KEY][str(user.id)]
+        expenses = get_data(ctx.guild)[MONEY_KEY][EXPENSES_KEY][str(user.id)]
     except KeyError:
         expenses = []
 
@@ -2294,7 +2466,7 @@ async def money_expense_list(ctx: interactions.CommandContext, player: interacti
 
 
 async def expense_clear_callback(ctx: interactions.ComponentContext):
-    del DATA[str(ctx.guild.id)][MONEY_KEY][EXPENSES_KEY][str(ctx.author.id)]
+    del get_data(ctx.guild)[MONEY_KEY][EXPENSES_KEY][str(ctx.author.id)]
     save_data()
     await ctx.send(embeds=interactions.Embed(title="Expenses Cleared",
                                              description="Expenses have been successfully cleared",
@@ -2314,7 +2486,7 @@ async def money_expense_clear(ctx: interactions.CommandContext):
     description="Command for daily income tracking."
 )
 async def money_income(ctx: interactions.CommandContext):
-    money = DATA[str(ctx.guild.id)][MONEY_KEY]
+    money = get_data(ctx.guild)[MONEY_KEY]
     if INCOME_KEY not in money:
         money[INCOME_KEY] = {}
 
@@ -2380,7 +2552,7 @@ async def money_income_add(ctx: interactions.CommandContext, title: str, descrip
                                                  color=interactions.Color.red()), ephemeral=True)
         return
 
-    incomes = DATA[str(ctx.guild.id)][MONEY_KEY][INCOME_KEY]
+    incomes = get_data(ctx.guild)[MONEY_KEY][INCOME_KEY]
 
     if any([title.lower() == e[0].lower() for e in incomes[str(ctx.author.id)]]):
         await ctx.send(embeds=interactions.Embed(title="Already Exists",
@@ -2409,7 +2581,7 @@ async def money_income_add(ctx: interactions.CommandContext, title: str, descrip
     ]
 )
 async def money_income_remove(ctx: interactions.CommandContext, title: str):
-    incomes = DATA[str(ctx.guild.id)][MONEY_KEY][INCOME_KEY][str(ctx.author.id)]
+    incomes = get_data(ctx.guild)[MONEY_KEY][INCOME_KEY][str(ctx.author.id)]
 
     for income in incomes:
         if income[0].lower() == title.lower():
@@ -2440,7 +2612,7 @@ async def money_income_list(ctx: interactions.CommandContext, player: interactio
     user = player if player else ctx.author
 
     try:
-        incomes = DATA[str(ctx.guild.id)][MONEY_KEY][INCOME_KEY][str(user.id)]
+        incomes = get_data(ctx.guild)[MONEY_KEY][INCOME_KEY][str(user.id)]
     except KeyError:
         incomes = []
 
@@ -2460,7 +2632,7 @@ async def money_income_list(ctx: interactions.CommandContext, player: interactio
 
 
 async def income_clear_callback(ctx: interactions.ComponentContext):
-    del DATA[str(ctx.guild.id)][MONEY_KEY][INCOME_KEY][str(ctx.author.id)]
+    del get_data(ctx.guild)[MONEY_KEY][INCOME_KEY][str(ctx.author.id)]
     save_data()
     await ctx.send(embeds=interactions.Embed(title="Incoome Cleared",
                                              description="Income sources have been successfully cleared",
@@ -2481,7 +2653,7 @@ async def expense_and_income_title_autocomplete(ctx: interactions.CommandContext
 
     try:
         expenses = \
-        DATA[str(ctx.guild.id)][MONEY_KEY][EXPENSES_KEY if ctx.data.options[0].name == "expense" else INCOME_KEY][
+        get_data(ctx.guild)[MONEY_KEY][EXPENSES_KEY if ctx.data.options[0].name == "expense" else INCOME_KEY][
             str(ctx.author.id)]
     except KeyError:
         await ctx.populate([])
