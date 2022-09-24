@@ -1,4 +1,4 @@
-import discord
+import discord  # also needs PyNaCl
 from gtts import gTTS
 from io import BytesIO
 import speech_recognition as sr
@@ -9,9 +9,13 @@ import threading
 import os
 import re
 import requests
+import json
+import platform
 
-os.environ['PATH'] += os.pathsep + r'C:\Users\Malcolm\Downloads\ffmpeg-2022-09-07-git-e4c1272711-essentials_build\bin'
-
+os.environ['PATH'] += os.pathsep + (
+                      r'C:\Users\Malcolm\Downloads\ffmpeg-2022-09-07-git-e4c1272711-essentials_build\bin' if platform.platform() == 'Windows'
+                      else r'/Users/malcolmroalson/Downloads/ffmpeg'
+                    )
 from FFmpegPCMAudioGTTS import FFmpegPCMAudioGTTS
 
 intents = discord.Intents.default()
@@ -23,26 +27,18 @@ voice: discord.VoiceClient = None
 
 class BufSink(discord.sinks.Sink):
     def __init__(self):
-        # if filters is None:
-        #     filters = discord.sinks.default_filters
-        # self.filters = filters
-        # discord.sinks.Filters.__init__(self, **self.filters)
-        #
-        # self.encoding = "none"
-        # self.vc = None
-        # self.audio_data = {}
         super().__init__()
 
-        self.bytearr_buf = bytearray()
+        self.data = {}
         self.sample_width = 2
         self.sample_rate = 96000
         self.bytes_ps = 192000
 
     def write(self, data, user):
-        self.bytearr_buf += data
+        if user not in self.data:
+            self.data[user] = bytearray()
 
-    def freshen(self, idx):
-        self.bytearr_buf = self.bytearr_buf[idx:]
+        self.data[user] += data
 
 
 async def callback(sink: discord.sinks.Sink):
@@ -83,67 +79,99 @@ async def on_ready():
         threading.Thread(target=thread, args=[sink]).start()
 
 
-conversation = ""
+conversations = {}
 
 
-def check_convo():
-    global conversation
+def check_words(user):
+    orig = conversations[user].split(" ")[-7:]
+    words = "%20".join(orig)
 
-    convo = " ".join(conversation.split(" ")[-7:])
-    print("testing: "+convo)
+    print(f'{user} parsing: {" ".join(orig)}')
+    req = requests.get(f'https://api.wit.ai/message?v=20220915&q={words}', headers={'authorization': f'Bearer 6QS5GTMV2B4FAPGVBA3OQTK45MN7HESX'})
+    entities = json.loads(req.text)['entities']
 
-    if ("d&d" in convo or "d and d" in convo or "dnd" in convo or "indie" in convo or "indy" in convo) and ("bot" in convo or "bar" in convo or "debot" in convo):
-        if "roll" in convo:
-            split = convo[convo.index("roll") + 4:]
-            if "d" in split:
-                split = split.split("d")
-            elif "to" in split:
-                split = split.split("to")
-            elif "day" in split:
-                split = split.split("day")
-            try:
-                amt = int(re.sub('[^0-9]', '', split[0]))
-                dice = int(re.sub('[^0-9]', '', split[1]))
-                play(f"Rolling {amt}d{dice}")
+    if 'begin:begin' in entities and 'roll:roll' in entities and 'roll:amount' in entities and 'roll:dice' in entities:
+        amt = int(re.sub('[^0-9]', '', entities['roll:amount'][0]['value']))
+        dice = int(re.sub('[^0-9]', '', entities['roll:dice'][0]['value']))
+        play(f"Rolling {amt}d{dice}")
 
-                conversation = ""
-            except (IndexError, ValueError) as e:
-                pass
+        conversations[user] = conversations[user].replace(" ".join(orig), "", 1)
+
+    # if ("d&d" in words or "d and d" in words or "dnd" in words or "indie" in words or "indy" in words) and ("bot" in words or "bar" in words or "debot" in words):
+    #     split = None
+    #     if "roll" in words:
+    #         split = words[words.index("roll") + 4:]
+    #     elif "raw" in words:
+    #         split = words[words.index("raw") + 3:]
+    #
+    #     if split:
+    #         if "d" in split:
+    #             split = split.split("d")
+    #         elif "b" in split:
+    #             split = split.split("b")
+    #         elif "to" in split:
+    #             split = split.split("to")
+    #         elif "day" in split:
+    #             split = split.split("day")
+    #         try:
+    #             amt = int(re.sub('[^0-9]', '', split[0]))
+    #             dice = int(re.sub('[^0-9]', '', split[1]))
+    #             play(f"Rolling {amt}d{dice}")
+    #
+    #             conversations[user] = ""
+    #         except (IndexError, ValueError) as e:
+    #             pass
 
 
+def parse_user(sink, user):
+    data = sink.data[user]
+    sink.data[user] = bytearray()
+
+    if any(data):
+        idx_strip = data.index(next(filter(lambda x: x != 0, data)))
+        if idx_strip:
+            data = data[idx_strip:]
+
+        data = data[::-1]
+
+        idx_strip = data.index(next(filter(lambda x: x != 0, data)))
+        if idx_strip:
+            data = data[idx_strip:]
+
+        data = data[::-1]
+
+        audio = sr.AudioData(bytes(data), sink.sample_rate,
+                             sink.sample_width)
+
+        print(f'{user} starting recognition')
+        try:
+            msg = r.recognize_wit(audio, key='6QS5GTMV2B4FAPGVBA3OQTK45MN7HESX').lower()
+        except sr.UnknownValueError:
+            print(f"{user}: ERROR: Couldn't understand.")
+        except sr.RequestError as e:
+            print(f"{user}: ERROR: Could not request results from Wit.ai service; {e}")
+        else:
+            msg = msg.replace("zero", "0").replace("one", "1").replace("two", "2").replace(
+                "three", "3").replace("four", "4").replace("five", "5").replace("six", "6").replace(
+                "seven", "7").replace("eight", "8").replace("nine", "9")
+            print(f"{user} recognized: {msg}")
+            if user not in conversations:
+                conversations[user] = ""
+
+            conversations[user] += " " + msg
+            check_words(user)
+
+
+SECONDS = 5
 def thread(sink):
-    global conversation
-
     while True:
-        SECONDS = 4
-        if len(sink.bytearr_buf) > sink.bytes_ps*SECONDS:
-            idx = sink.bytes_ps * SECONDS
-            slice = sink.bytearr_buf[:idx]
+        try:
+            for user in sink.data:
+                threading.Thread(target=parse_user, args=[sink, user]).start()
 
-            if any(slice):
-                idx_strip = slice.index(next(filter(lambda x: x != 0, slice)))
-                if idx_strip:
-                    sink.freshen(idx_strip)
-                    slice = sink.bytearr_buf[:idx]
-                audio = sr.AudioData(bytes(slice), sink.sample_rate,
-                                     sink.sample_width)
-
-                print('recognizing: ', end='')
-                msg: str = None
-                try:
-                    msg = r.recognize_wit(audio, key='6QS5GTMV2B4FAPGVBA3OQTK45MN7HESX').lower()
-                except sr.UnknownValueError:
-                    print("ERROR: Couldn't understand.")
-                except sr.RequestError as e:
-                    print("ERROR: Could not request results from Wit.ai service; {0}".format(e))
-
-                if msg:
-                    print(msg)
-
-                    conversation += " " + msg.replace("zero", "0").replace("one", "1").replace("two", "2").replace("three", "3").replace("four", "4").replace("five", "5").replace("six", "6").replace("seven", "7").replace("eight", "8").replace("nine", "9")
-                    check_convo()
-
-            sink.freshen(idx)
+            sleep(SECONDS)
+        except RuntimeError:
+            pass
 
 
-bot.run('MTAxMzk2NDc0MzE4NDIyODM4Mw.GrmmXR.94QvBBACgu5r0-j9pq9RsKY5e8boGluf5cIYsM')
+bot.run('MTAxMzk2NDc0MzE4NDIyODM4Mw.GG-nk2.aTi1lzuv4imPyhTfeHwpr2AKXfu_RFU6TBYU04')

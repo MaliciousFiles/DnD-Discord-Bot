@@ -10,6 +10,7 @@ import sys
 from tkinter import *
 from tkinter.messagebox import askyesno
 from zipfile import ZipFile
+import asyncio
 
 import interactions
 import pystray
@@ -37,6 +38,8 @@ PASSWORD_KEY = "password"
 ACCESS_TOKEN_KEY = "access_token"
 
 CHARACTERS_KEY = "characters"
+CHAR_UUID_KEY = "uuid"
+CHAR_SHARE_KEY = "share"
 
 DM_ROLE_KEY = "dm_role"
 PLAYER_ROLE_KEY = "player_role"
@@ -290,7 +293,7 @@ async def on_ready():
 
     for guild in bot.guilds:
         if str(guild.id) not in DATA:
-            DATA[str(guild.id)] = {CREDENTIALS_KEY: {}, CAMPAIGNS_KEY: {}, CURRENT_CAMPAIGN_KEY: "", CHARACTERS_KEY: {}}
+            DATA[str(guild.id)] = {CREDENTIALS_KEY: {}, CAMPAIGNS_KEY: {"Default": {CHARACTERS_KEY: {}}}, CURRENT_CAMPAIGN_KEY: "Default"}
 
 
     save_data()
@@ -298,7 +301,7 @@ async def on_ready():
 
 @bot.event
 async def on_guild_join(guild):
-    DATA[str(guild.id)] = {CREDENTIALS_KEY: {}, CAMPAIGNS_KEY: {}, CURRENT_CAMPAIGN_KEY: "", CHARACTERS_KEY: {}}
+    DATA[str(guild.id)] = {CREDENTIALS_KEY: {}, CAMPAIGNS_KEY: {"Default": {CHARACTERS_KEY: {}}}, CURRENT_CAMPAIGN_KEY: "Default"}
     save_data()
 
 
@@ -499,7 +502,8 @@ async def set_access_token(ctx: interactions.CommandContext):
     return False
 
 
-async def query_AC(ctx: interactions.CommandContext, path: str, autocomplete: bool = False):
+async def query_AC(ctx: interactions.CommandContext, path: str, autocomplete: bool = False, method = requests.get):
+    if path and not path.endswith("/"): path += "/"
     if not autocomplete: await ctx.defer(True)
 
     async def error():
@@ -521,7 +525,7 @@ async def query_AC(ctx: interactions.CommandContext, path: str, autocomplete: bo
             if not autocomplete: await ctx.send(embeds=interactions.Embed(title="Not Registered", description="Set your character using `/character` before doing this!", color=interactions.Color.red()), ephemeral=True)
             return
         else:
-            path = path.replace('{uuid}', chars[str(ctx.author.id)])
+            path = path.replace('{uuid}', chars[str(ctx.author.id)][CHAR_UUID_KEY])
 
     status_code = 401
     while status_code == 401:
@@ -529,14 +533,17 @@ async def query_AC(ctx: interactions.CommandContext, path: str, autocomplete: bo
             'referer': 'https://app.adventurerscodex.com',
             'authorization': f'Bearer {AES.decrypt(creds[ACCESS_TOKEN_KEY])}'
         }
-
-        response = requests.get(f"https://app.adventurerscodex.com/api/core/{path}", headers=headers)
+        
+        response = method(f"https://app.adventurerscodex.com/api/core/{path}", headers=headers)
         status_code = response.status_code
 
         if status_code == 401:
             if not await set_access_token(ctx):
                 await error()
                 return
+
+    if status_code < 200 or status_code > 299:
+        return status_code
 
     out = json.loads(response.text)
     return out['results'] if 'results' in out else out
@@ -669,6 +676,7 @@ async def help(ctx: interactions.CommandContext, command: str = None, subcommand
 
         **account:** link your Adventurer's Codex account.
         **character:** set or get which character is in use.
+        **playersheets:** get all registered share links, or for a specific player
         **campaign\\*:** base command for modifying the active campaign.
         **dm-role:** set the role that represents DMs.
         **roll\\*:** roll a die (dice roller courtesy of CommanderZero)
@@ -725,7 +733,11 @@ async def account_command(ctx: interactions.CommandContext, username: str, passw
     creds[str(ctx.author.id)] = {USERNAME_KEY: AES.encrypt(username), PASSWORD_KEY: AES.encrypt(password)}
 
     chars = get_data(ctx.guild)[CHARACTERS_KEY]
-    if str(ctx.author.id) in chars: del chars[str(ctx.author.id)]
+    if str(ctx.author.id) in chars:
+        if CHAR_SHARE_KEY in chars[str(ctx.author.id)]:
+            await query_AC(ctx, "{uuid}/share_keys/"+chars[str(ctx.author.id)][CHAR_SHARE_KEY], method=requests.delete)
+        del chars[str(ctx.author.id)]
+
 
     await ctx.defer(True)
 
@@ -738,6 +750,8 @@ async def account_command(ctx: interactions.CommandContext, username: str, passw
     await ctx.send(
         embeds=interactions.Embed(title="Success", description="Adventurer's Codex credentials saved. Make sure you use `/character` to set which character to user!",
                                   color=interactions.Color.green()), ephemeral=True)
+
+
 
 
 @bot.command(
@@ -762,7 +776,7 @@ async def character_command(ctx: interactions.CommandContext, name: str = None):
 
     if name is None:
 
-        desc = f"Your active character is "+(("**"+{value: key for key,value in ac_chars.items()}[chars[str(ctx.author.id)]]+"**") if str(ctx.author.id) in chars else "not set")
+        desc = f"Your active character is "+(("**"+{value: key for key,value in ac_chars.items()}[chars[str(ctx.author.id)][CHAR_UUID_KEY]]+"**") if str(ctx.author.id) in chars else "not set")
 
         await ctx.send(embeds=interactions.Embed(title="Character", description=desc, color=interactions.Color.blurple()), ephemeral=True)
         return
@@ -771,7 +785,7 @@ async def character_command(ctx: interactions.CommandContext, name: str = None):
         await ctx.send(embeds=interactions.Embed(title='Not Found', description='Could not find that character', color=interactions.Color.red()), ephemeral=True)
         return
 
-    chars[str(ctx.author.id)] = ac_chars[name]
+    chars[str(ctx.author.id)] = {CHAR_UUID_KEY: ac_chars[name]}
     save_data()
     await ctx.send(embeds=interactions.Embed(title='Character Set', description='Successfully set the character in use', color=interactions.Color.green()), ephemeral=True)
 
@@ -784,6 +798,110 @@ async def character_name_autocomplete(ctx: interactions.CommandContext, user_inp
         return
 
     await ctx.populate([interactions.Choice(name=char['name'], value=char['name']) for char in response if char['type']['name'] == 'character' and char['name'].lower().startswith(user_input.lower())][:25])
+
+
+async def get_share_link(ctx: interactions.CommandContext, user: str):
+    chars = get_data(ctx.guild)[CHARACTERS_KEY]
+
+    if user not in chars: return None
+
+    query = None
+    if CHAR_SHARE_KEY in chars[user]:
+        query = await query_AC(ctx, "{uuid}/share_keys/" + chars[user][CHAR_SHARE_KEY])
+        if not query:
+            return
+
+    if not query or query == 404:  # if not already set, or got deleted
+        query = await query_AC(ctx, "{uuid}/share_keys", method=requests.post)
+        chars[user][CHAR_SHARE_KEY] = query['uuid']
+        save_data()
+
+        if not query:
+            return
+
+    return query['link']
+
+
+async def get_character_name(ctx: interactions.CommandContext, id):
+    ac_chars = {ch['uuid']: ch['name'] for ch in await query_AC(ctx, '') if ch['type']['name'] == 'character'}
+
+    return ac_chars[get_data(ctx.guild)[CHARACTERS_KEY][str(id)][CHAR_UUID_KEY]]
+
+@bot.command(
+    name="playersheets",
+    description="Get all or specific character sheets",
+    options=[
+        interactions.Option(
+            name="user",
+            description="The user to get the sheet for.",
+            type=interactions.OptionType.USER
+        ),
+        interactions.Option(
+            name="all",
+            description="List all character sheets.",
+            type=interactions.OptionType.BOOLEAN
+        )
+    ]
+)
+async def playersheets_command(ctx: interactions.CommandContext, user: interactions.User = None, all: bool = False):
+    if (all or user) and not await check_dm(ctx, ctx.author): return
+    await ctx.defer(True)
+
+    chars = get_data(ctx.guild)[CHARACTERS_KEY]
+    desc = ""
+
+    if all:
+         for user in chars:
+            desc += f"<@{user}> (**{await get_character_name(ctx, user)}**): {await get_share_link(ctx, user)}\n"
+    else:
+        if not user: user = ctx.author
+
+        link = await get_share_link(ctx, user.id)
+        if not link:
+            await ctx.send(embeds=interactions.Embed(title="Not Linked", description="That user doesn't have a character sheet linked", color=interactions.Color.blurple()), ephemeral=True)
+            return
+
+        desc = f"{user.mention} (**{await get_character_name(ctx, user.id)}**): {link}\n"
+
+    await ctx.send(embeds=interactions.Embed(title="Share Links", description=desc[:-1], color=interactions.Color.blurple()), ephemeral=True)
+
+
+pestering = []
+ACKNOWLEDGE_PESTER_BUTTON = interactions.Button(style=interactions.ButtonStyle.SUCCESS, label="Acknowledge", custom_id="acknowledge_pestering")
+
+@bot.component(ACKNOWLEDGE_PESTER_BUTTON)
+async def acknowledge_pestering_button(ctx: interactions.ComponentContext):
+    await ctx.edit(embeds=interactions.Embed(title="Pestering Acknowledged", description="Acknowledged! Go join the others", color=interactions.Color.green()), components=[])
+    pestering.remove(ctx.user.id)
+
+
+@bot.command(
+    name="pester",
+    description="Pester someone until they join.",
+    options=[
+        interactions.Option(
+            name="user",
+            description="The user to pester",
+            type=interactions.OptionType.USER,
+            required=True
+        )
+    ]
+)
+async def pester(ctx: interactions.CommandContext, user: interactions.Member):
+    if not await check_dm(ctx, ctx.author): return
+
+    if user.id in pestering:
+        await ctx.send(embeds=interactions.Embed(title="Already Pestering", description=f"Already pestering {user.mention}", color=interactions.Color.red()), ephemeral=True)
+        return
+
+    msg = await ctx.send(embeds=interactions.Embed(title="Pestering", description=f"Pestering {user.mention} until they acknowledge", color=interactions.Color.green()), ephemeral=True)
+    pestering.append(user.id)
+
+    await user.send(embeds=interactions.Embed(title="Join D&D", description="The others are waiting, go join!", color=interactions.Color.yellow()), components=ACKNOWLEDGE_PESTER_BUTTON)
+
+    while user.id in pestering:
+        await (await user.send(user.mention)).delete()
+        await asyncio.sleep(2)
 
 
 @bot.command(
@@ -813,16 +931,21 @@ async def campaign_add(ctx: interactions.CommandContext, name: str):
         await ctx.send(embeds=interactions.Embed(title="Already Exists", description="A campaign by that name already exists", color=interactions.Color.red()), ephemeral=True)
         return
 
-    get_data(ctx.guild, False)[CAMPAIGNS_KEY][name] = {}
+    get_data(ctx.guild, False)[CAMPAIGNS_KEY][name] = {CHARACTERS_KEY: {}}
     save_data()
 
     await ctx.send(embeds=interactions.Embed(title="Campaign Added", description=f"New campaign successfully added. `/campaign set {name}` to set it as the active campaign", color=interactions.Color.green()), ephemeral=True)
 
 
 async def remove_campaign_callback(ctx: interactions.ComponentContext, name: str):
-    del get_data(ctx.guild, False)[CAMPAIGNS_KEY][name]
-    if get_data(ctx.guild, False)[CURRENT_CAMPAIGN_KEY] == name:
-        get_data(ctx.guild, False)[CURRENT_CAMPAIGN_KEY] = ""
+    data = get_data(ctx.guild, False)
+    del data[CAMPAIGNS_KEY][name]
+    if data[CURRENT_CAMPAIGN_KEY] == name:
+        if len(data[CAMPAIGNS_KEY]) > 0:
+            data[CURRENT_CAMPAIGN_KEY] = data[CAMPAIGNS_KEY].keys()[0]
+        else:
+            data[CURRENT_CAMPAIGN_KEY] = "Default"
+            data[CAMPAIGNS_KEY]["Default"] = {}
 
     save_data()
 
