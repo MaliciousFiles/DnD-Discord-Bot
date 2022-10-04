@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import tempfile
 from functools import reduce
 from time import time
@@ -75,7 +76,7 @@ def cache_monsters(stats_file, statblocks_directory):
 
         driver.close()
 
-    if statblocks_directory:
+    if statblocks_directory and os.path.exists(os.path.join(statblocks_directory, "statblocks.zip")):
         with ZipFile(os.path.join(statblocks_directory, "statblocks.zip")) as zipfile:
             statblock_files = zipfile.namelist()
             zipfile.extractall(statblocks_directory)
@@ -99,7 +100,8 @@ def cache_monsters(stats_file, statblocks_directory):
 
     start = time()
     while len(driver.find_elements(by=By.CLASS_NAME, value="stats-name")) == 0:
-        if time() - start > 5:  # try again after 5 seconds
+        if time() - start > 10:  # try again after 10 seconds
+            start = time()
             driver.refresh()
 
     for e in driver.find_elements(by=By.CLASS_NAME, value="fltr__mini-pill--default-desel"):
@@ -166,7 +168,8 @@ def cache_monsters(stats_file, statblocks_directory):
                     ),
                     "type": stats["type"]["type"] if type(stats["type"]) == dict else stats["type"],
                     "subtypes": stats["type"]["tags"] if type(stats["type"]) == dict and "tags" in stats["type"] else [],
-                    "speeds": speeds
+                    "speeds": speeds,
+                    "hp": stats["hp"]["average"] if "average" in stats["hp"] else "—"
                 }
 
                 remove = driver.find_elements(by=By.CLASS_NAME, value="glyphicon-remove")

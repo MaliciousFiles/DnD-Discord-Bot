@@ -48,6 +48,10 @@ INITIATIVE_KEY = "initiative"
 INIT_EMBEDS_KEY = "initiative_embeds"
 CURRENT_INITIATIVE_KEY = "current_initiative"
 
+MONSTER_HP_KEY = "monster_hp"
+MHP_HEALTH_KEY = "mhp_health"
+MHP_EMBEDS_KEY = "mhp_embeds"
+
 DATES_KEY = "dates"
 TIMELINE_KEY = "timeline"
 CAMPAIGN_START_KEY = "campaign_start"
@@ -138,6 +142,7 @@ def populate_monsters():
 
 if __name__ == "__main__":
     MONSTER_STATS_CACHED = MONSTER_STATBLOCKS_CACHED = False
+    MONSTER_STATBLOCKS_CACHED = True # TODO: temp
     while not MONSTER_STATS_CACHED or not MONSTER_STATBLOCKS_CACHED:
         if not MONSTER_STATS_CACHED:
             monster_stats_file = path.join(cache_dir, "stats.json")
@@ -160,7 +165,8 @@ if __name__ == "__main__":
     try:
         __file__ = __file__
     except NameError:
-        __file__ = sys.executable
+        __file__ = sys.executabl
+
     icon_file = path.join(path.dirname(path.realpath(__file__)), "icon.png")
 
     with open(data_file) as f:
@@ -1144,6 +1150,238 @@ async def roll(ctx: interactions.CommandContext, sub_command: str, ability: str 
 
 
 @bot.command(
+    name="mhp",
+    description="Monster health tracker base command."
+)
+async def monster_hp(ctx: interactions.CommandContext):
+    if MONSTER_HP_KEY not in get_data(ctx.guild):
+        get_data(ctx.guild)[MONSTER_HP_KEY] = {MHP_HEALTH_KEY: {}, MHP_EMBEDS_KEY: {}}
+    if MHP_HEALTH_KEY not in get_data(ctx.guild)[MONSTER_HP_KEY]:
+        get_data(Ctx.guild)[MONSTER_HP_KEY][MHP_HEALTH_KEY] = {}
+    if MHP_EMBEDS_KEY not in get_data(ctx.guild)[MONSTER_HP_KEY]:
+        get_data(Ctx.guild)[MONSTER_HP_KEY][MHP_EMBEDS_KEY] = {}
+
+
+@monster_hp.subcommand(
+    name="add",
+    description="Add new monster to health tracker.",
+    options=[
+        interactions.Option(
+            name="monster",
+            description="Name of monster",
+            type=interactions.OptionType.STRING,
+            autocomplete=True,
+            required=True
+        ),
+        interactions.Option(
+            name="hp",
+            description="The HP of the monster, if provided",
+            type=interactions.OptionType.INTEGER
+        )
+    ]
+)
+async def mhp_add(ctx: interactions.CommandContext, monster: str, hp: int = None):
+    if not await check_dm(ctx, ctx.author): return
+
+    if monster not in MONSTER_ID_BY_NAME and hp is not None:
+        await ctx.send(embeds=interactions.Embed(title="Invalid Parameters", description="Must provide either official monster or HP.", color=interactions.Color.red()), ephemeral=True)
+        return
+
+    if hp is None:
+        hp = MONSTER_STATS[MONSTER_ID_BY_NAME[monster]]["hp"]
+        if hp == "—":
+            await ctx.send(embeds=interactions.Embed(title="HP Not Found", description=f"That monster has special (or no) HP. `/monster statblock {monster}` for more info", color=interactions.Color.red()), ephemeral=True)
+
+    get_data(ctx.guild)[MONSTER_HP_KEY][MHP_HEALTH_KEY][monster] = hp
+    save_data()
+
+    update_mhp_embeds(ctx)
+
+    await ctx.send(embeds=interactions.Embed(title="Added", description=f"Succesfully added **{monster}** with HP {hp}", color=interactions.Color.green()), ephemeral=True)
+
+
+@monster_hp.subcommand(
+    name="remove",
+    description="Remove a monster from health tracker.",
+    options=[
+        interactions.Option(
+            name="name",
+            description="Name of monster",
+            type=interactions.OptionType.STRING,
+            autocomplete=True,
+            required=True
+        )
+    ]
+)
+async def mhp_remove(ctx: interactions.CommandContext, name: str):
+    if not await check_dm(ctx, ctx.author): return
+
+    if name not in get_data(ctx.guild)[MONSTER_HP_KEY][MHP_HEALTH_KEY]:
+        await ctx.send(embeds=interactions.Embed(title="Not Found", description="Could not find a monster with that name", color=interactions.Color.red()), ephemeral=True)
+        return
+
+    del get_data(ctx.guild)[MONSTER_HP_KEY][MHP_HEALTH_KEY][name]
+    save_data()
+
+    update_mhp_embeds(ctx)
+
+    await ctx.send(embeds=interactions.Embed(title="Removed", description=f"Succesfully removed **{name}**", color=interactions.Color.green()), ephemeral=True)
+
+
+@monster_hp.subcommand(
+    name="set",
+    description="Set the health of a monster.",
+    options=[
+        interactions.Option(
+            name="name",
+            description="Name of monster",
+            type=interactions.OptionType.STRING,
+            autocomplete=True,
+            required=True
+        ),
+        interactions.Option(
+            name="hp",
+            description="The HP of the monster",
+            type=interactions.OptionType.INTEGER,
+            required=True
+        )
+    ]
+)
+async def mhp_set(ctx: interactions.CommandContext, name: str, hp: int):
+    if not await check_dm(ctx, ctx.author): return
+
+    if name not in get_data(ctx.guild)[MONSTER_HP_KEY][MHP_HEALTH_KEY]:
+        await ctx.send(embeds=interactions.Embed(title="Not Found", description="Could not find a monster with that name", color=interactions.Color.red()), ephemeral=True)
+        return
+
+    get_data(ctx.guild)[MONSTER_HP_KEY][MHP_HEALTH_KEY][name] = hp
+    save_data()
+
+    update_mhp_embeds(ctx)
+
+    await ctx.send(embeds=interactions.Embed(title="HP Set", description=f"Succesfully set **{name}**'s health to {hp}", color=interactions.Color.green()), ephemeral=True)
+
+
+def get_mhp_embed(ctx: interactions.CommandContext):
+    mhp=get_data(ctx.guild)[MONSTER_HP_KEY][MHP_HEALTH_KEY]
+    desc=""
+
+    for monster in mhp:
+        desc += f"**{monster}**: {mhp[monster]}\n"
+
+    return "Empty" if desc == "" else desc[:-1]
+
+
+@monster_hp.subcommand(
+    name="subtract",
+    description="Subtract health from a monster.",
+    options=[
+        interactions.Option(
+            name="name",
+            description="Name of monster",
+            type=interactions.OptionType.STRING,
+            autocomplete=True,
+            required=True
+        ),
+        interactions.Option(
+            name="hp",
+            description="The HP to subtract",
+            type=interactions.OptionType.INTEGER,
+            required=True
+        )
+    ]
+)
+async def mhp_subtract(ctx: interactions.CommandContext, name: str, hp: int):
+    if not await check_dm(ctx, ctx.author): return
+
+    if name not in get_data(ctx.guild)[MONSTER_HP_KEY][MHP_HEALTH_KEY]:
+        await ctx.send(embeds=interactions.Embed(title="Not Found", description="Could not find a monster with that name", color=interactions.Color.red()), ephemeral=True)
+        return
+
+    get_data(ctx.guild)[MONSTER_HP_KEY][MHP_HEALTH_KEY][name] -= hp
+    save_data()
+
+    update_mhp_embeds(ctx)
+
+    await ctx.send(embeds=interactions.Embed(title="HP Subtracted", description=f"**{name}** damaged for {hp} HP", color=interactions.Color.green()), ephemeral=True)
+
+
+@monster_hp.autocomplete(name="name")
+async def autocomplete_monster_name(ctx: interactions.CommandContext, user_input: str = ""):
+    if MONSTER_HP_KEY not in get_data(ctx.guild) or MHP_HEALTH_KEY not in get_data(ctx.guild)[MONSTER_HP_KEY]:
+        await ctx.populate([])
+
+    await ctx.populate([key for key in get_data(ctx.guild)[MONSTER_HP_KEY][MHP_HEALTH_KEY] if key.lower().startswith(user_input.lower())][:25])
+
+
+async def mhp_clear_callback(ctx: interactions.ComponentContext):
+    guild = get_data(ctx.guild)
+
+    if MHP_EMBEDS_KEY in guild[MONSTER_HP_KEYS]:
+        for channel, message in guild[MONSTER_HP_KEYS][MHP_EMBEDS_KEY].items():
+            chnl = next((c for c in (await ctx.guild.get_all_channels()) if str(c.id) == channel), None)
+            if not chnl: return
+
+            msg = await chnl.get_message(int(message))
+            await msg.delete()
+
+    del guild[MONSTER_HP_KEY]
+    save_data()
+
+    await ctx.send(embeds=interactions.Embed(title="MHP Cleared",
+                                     description="Monster HP tracker has been successfully cleared",
+                                     color=interactions.Color.green()), ephemeral=True)
+
+
+@monster_hp.subcommand(
+    name="clear",
+    description="Clear the monster HP tracker."
+)
+async def mhp_clear(ctx: interactions.CommandContext):
+    if not await check_dm(ctx, ctx.author): return
+
+    await confirm_action(ctx, "clear_mhp", mhp_clear_callback)
+
+
+@monster_hp.subcommand(
+    name="list",
+    description="Lists all the monsters' HPs.",
+    options=[
+        interactions.Option(
+            name="public",
+            description="Create an auto-updating public list",
+            type=interactions.OptionType.BOOLEAN
+        )
+    ]
+)
+async def mhp_list(ctx: interactions.CommandContext, public: bool = False):
+    if not await check_dm(ctx, ctx.author): return
+
+    guild = get_data(ctx.guild)
+
+    message = await ctx.send(embeds=interactions.Embed(title="Monster HP", description=get_mhp_embed(ctx), color=interactions.Color.blurple()),
+                   ephemeral=not public)
+
+    if (public):
+        guild[MONSTER_HEALTH_KEY][MHP_EMBEDS_KEY][str(message.channel_id)] = str(message.id)
+
+        save_data()
+
+
+async def update_mhp_embeds(ctx: interactions.CommandContext):
+    mhp = get_data(ctx.guild)[MONSTER_HEALTH_KEY]
+    if MHP_EMBEDS_KEY in mhp:
+        for channel, message in mhp[MHP_EMBEDS_KEY].items():
+            chnl = next((c for c in (await ctx.guild.get_all_channels()) if str(c.id) == channel), None)
+            if not chnl: return
+
+            msg = await chnl.get_message(int(message))
+            embed = msg.embeds[0]
+            embed.description = get_mhp_embed(ctx)
+            await msg.edit(embeds=embed)
+
+
+@bot.command(
     name="init",
     description="Initiative base command."
 )
@@ -1666,14 +1904,6 @@ async def monster_statblock(ctx: interactions.CommandContext, monster: str, publ
     await ctx.send(
         embeds=interactions.Embed(image=interactions.EmbedImageStruct(url=url), color=interactions.Color.blurple()),
         ephemeral=not public)
-
-
-@monster_command.autocomplete(
-    name="monster"
-)
-async def autocomplete_monster(ctx: interactions.CommandContext, user_input: str = ""):
-    await ctx.populate([interactions.Choice(name=key, value=key) for key in
-                        filter(lambda key: key.lower().startswith(user_input.lower()), MONSTER_ID_BY_NAME.keys())][:25])
 
 
 def get_speed_choices():
@@ -2787,11 +3017,17 @@ async def expense_and_income_title_autocomplete(ctx: interactions.CommandContext
     await ctx.populate([interactions.Choice(name=title, value=title) for title in
                         filter(lambda key: key.lower().startswith(user_input.lower()), titles)][:25])
 
+@monster_hp.autocomplete(name="monster")
+@monster_command.autocomplete(name="monster")
+async def autocomplete_monster(ctx: interactions.CommandContext, user_input: str = ""):
+    print(user_input)
+    await ctx.populate([interactions.Choice(name=key, value=key) for key in MONSTER_ID_BY_NAME if key.lower().startswith(user_input.lower())][:25])
+
+
 
 def confirm_quit():
     if askyesno("Confirm", "Are you sure you want to exit?"):
         quit_app()
-
 
 if __name__ == '__main__':
     menu = (
