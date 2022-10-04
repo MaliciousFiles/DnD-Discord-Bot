@@ -163,8 +163,7 @@ def cache_monsters(stats_file, statblocks_directory):
                     "cr": stats["cr"] if "cr" in stats else "—",
                     "size": SIZES[stats["size"][0]],
                     "alignment": "—" if alignment is None else (
-                        "any evil" if "NX" in alignment else f"{ALIGNMENT[alignment[0]]}\
-                        {' '+ALIGNMENT[alignment[1]] if len(alignment) > 1 else ''}"
+                        "any evil" if "NX" in alignment else f"{ALIGNMENT[alignment[0]]}{' '+ALIGNMENT[alignment[1]] if len(alignment) > 1 else ''}"
                     ),
                     "type": stats["type"]["type"] if type(stats["type"]) == dict else stats["type"],
                     "subtypes": stats["type"]["tags"] if type(stats["type"]) == dict and "tags" in stats["type"] else [],

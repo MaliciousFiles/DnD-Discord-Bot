@@ -12,6 +12,8 @@ import requests
 import json
 import platform
 
+WIT_TOKEN="PE237IFDN3ZR4EZOHJG2RDTWZG3AP74N"
+
 os.environ['PATH'] += os.pathsep + (
                       r'C:\Users\Malcolm\Downloads\ffmpeg-2022-09-07-git-e4c1272711-essentials_build\bin' if platform.platform() == 'Windows'
                       else r'/Users/malcolmroalson/Downloads/ffmpeg'
@@ -44,7 +46,7 @@ class BufSink(discord.sinks.Sink):
 async def callback(sink: discord.sinks.Sink):
     print('callback')
 
-    await bot.close()
+    os._exit(0)
 
 
 def play(text: str):
@@ -87,7 +89,8 @@ def check_words(user):
     words = "%20".join(orig)
 
     print(f'{user} parsing: {" ".join(orig)}')
-    req = requests.get(f'https://api.wit.ai/message?v=20220915&q={words}', headers={'authorization': f'Bearer 6QS5GTMV2B4FAPGVBA3OQTK45MN7HESX'})
+    return
+    req = requests.get(f'https://api.wit.ai/message?v=20220915&q={words}', headers={'authorization': f'Bearer {WIT_TOKEN}'})
     entities = json.loads(req.text)['entities']
 
     if 'begin:begin' in entities and 'roll:roll' in entities and 'roll:amount' in entities and 'roll:dice' in entities:
@@ -145,7 +148,7 @@ def parse_user(sink, user):
 
         print(f'{user} starting recognition')
         try:
-            msg = r.recognize_wit(audio, key='6QS5GTMV2B4FAPGVBA3OQTK45MN7HESX').lower()
+            msg = r.recognize_wit(audio, key=WIT_TOKEN).lower()
         except sr.UnknownValueError:
             print(f"{user}: ERROR: Couldn't understand.")
         except sr.RequestError as e:
@@ -174,4 +177,4 @@ def thread(sink):
             pass
 
 
-bot.run('MTAxMzk2NDc0MzE4NDIyODM4Mw.GG-nk2.aTi1lzuv4imPyhTfeHwpr2AKXfu_RFU6TBYU04')
+bot.run('MTAxMzk2NDc0MzE4NDIyODM4Mw.GVj16Y.WMSzIsU3I8gKvtAlwbb1xcyLssbS_oXvoFTjXQ')

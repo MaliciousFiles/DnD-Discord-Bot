@@ -38,7 +38,7 @@ def roll_dice(txt):
         try:
             p = parse(txt)
         except:
-            raise RuntimeError('Parsing Error')
+            raise RuntimeError(f'Parsing Error: {txt}')
         try:
             o=hcompcal(p)
             if type(o)==list:
@@ -53,11 +53,11 @@ def roll_dice(txt):
         try:
             p = parse(txt)
         except:
-            raise RuntimeError('Parsing Error')
+            raise RuntimeError(f'Parsing Error: {txt}')
         try:
             v = cal(p)
         except:
-            raise RuntimeError('Computation Error')
+            raise RuntimeError(f'Computation Error: {txt}')
         c='**Result:** Too Complex'+'\n**Total:** '+str(v)
         ro=v
     return(c,ro)
@@ -356,7 +356,7 @@ def halfcal(parsing):
             r = calX[0]+'['+', '.join(t2)+']'
             r2=funcs[code](p1,p2)
         elif code=='x':
-            raise RuntimeError('OperandError')
+            raise RuntimeError(f'OperandError: {parsing}')
         return r,r2#returns a the unparsed code with the dice values computed, and the reparsed code to give the correct solution
 def hcompcal(parsing):
     if parsing[0]=='x' and type(parsing[1])==int:
