@@ -279,8 +279,9 @@ if __name__ == "__main__":
         with open(monster_stats_file, "w") as f:
             json.dump(MONSTER_STATS, f)
 
-        icon.visible = False
-        icon.stop()
+        if not IS_SERVER:
+            icon.visible = False
+            icon.stop()
 
         os._exit(0)
 
@@ -313,7 +314,8 @@ if __name__ == "__main__":
 
     @bot.event
     async def on_ready():
-        icon.visible = True
+        if not IS_SERVER:
+            icon.visible = True
 
         for guild in bot.guilds:
             if str(guild.id) not in DATA:
