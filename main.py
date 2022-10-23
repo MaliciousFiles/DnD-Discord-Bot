@@ -1,15 +1,18 @@
+import platform
+IS_SERVER = platform.system() == "Linux"
+
 import atexit
 import builtins
 import json
 import os
-import platform
 import os.path as path
 import re
 import signal
 import subprocess
 import sys
-from tkinter import *
-from tkinter.messagebox import askyesno
+if not is_server:
+    from tkinter import *
+    from tkinter.messagebox import askyesno
 from zipfile import ZipFile
 import asyncio
 
@@ -67,8 +70,6 @@ MONTHS = ["Hammer", "Alturiak", "Ches", "Tarsakh", "Mirtul", "Kythorn", "Flameru
           "Uktar", "Nightal"]
 ALL_SPELLS = {}
 SPELLS_BY_CLASS_AND_LEVEL = {}
-
-IS_SERVER = platform.system() == "Linux"
 
 with open("tables.json") as f:
     TABLES = json.load(f)
@@ -217,6 +218,9 @@ if __name__ == "__main__":
 
 
     def set_and_get_env(key: str, prompt: str, strip=False, on_exit=None) -> str:
+        if IS_SERVER:
+            return None
+
         window = Tk()
         window.title(appname)
         window.tk.call('wm', 'iconphoto', window._w, PhotoImage(file=icon_file))
@@ -288,14 +292,15 @@ if __name__ == "__main__":
         try:
             bot = interactions.Client(token)
         except Exception as e:
-            print("[EXCEPTION] " + str(e))
-            error = True
-            set_and_get_env("BOT_AUTH_TOKEN",
-                            "Saved Discord Authentication Token is invalid! Enter the correct one below, then the app will restart:",
-                            True)
+            print("[EXCEPTION] invalid auth token: " + str(e))
+            if not IS_SERVER:
+                error = True
+                set_and_get_env("BOT_AUTH_TOKEN",
+                                "Saved Discord Authentication Token is invalid! Enter the correct one below, then the app will restart:",
+                                True)
 
-            subprocess.Popen([sys.executable, __file__], start_new_session=True, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL)
+                subprocess.Popen([sys.executable, __file__], start_new_session=True, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
 
             os._exit(0)
 
@@ -3275,19 +3280,21 @@ if __name__ == "__main__":
         await ctx.populate([interactions.Choice(name=key, value=key) for key in MONSTER_ID_BY_NAME if key.lower().startswith(user_input.lower())][:25])
 
 
+    if not IS_SERVER:
+        def confirm_quit():
+            if askyesno("Confirm", "Are you sure you want to exit?"):
+                quit_app()
 
-    def confirm_quit():
-        if askyesno("Confirm", "Are you sure you want to exit?"):
-            quit_app()
+        menu = (
+            pystray.MenuItem("Confirm Quit", confirm_quit, default=True, visible=False),
+            pystray.MenuItem("Quit", quit_app)
+        )
+        icon = pystray.Icon(name=appname, icon=Image.open(icon_file), title=appname, menu=menu)
 
-    menu = (
-        pystray.MenuItem("Confirm Quit", confirm_quit, default=True, visible=False),
-        pystray.MenuItem("Quit", quit_app)
-    )
-    icon = pystray.Icon(name=appname, icon=Image.open(icon_file), title=appname, menu=menu)
+        atexit.register(quit_app)
+        signal.signal(signal.SIGTERM, quit_app)
+        signal.signal(signal.SIGINT, quit_app)
 
-    atexit.register(quit_app)
-    signal.signal(signal.SIGTERM, quit_app)
-    signal.signal(signal.SIGINT, quit_app)
-
-    icon.run(lambda thing: bot.start())
+        icon.run(lambda thing: bot.start())
+    else:
+        bot.start()
