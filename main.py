@@ -10,18 +10,19 @@ import re
 import signal
 import subprocess
 import sys
-if not IS_SERVER:
-    from tkinter import *
-    from tkinter.messagebox import askyesno
 from zipfile import ZipFile
 import asyncio
 
 import interactions
-import pystray
 import requests
-from PIL import Image
 from appdirs import *
 from dotenv import get_key, set_key
+
+if not IS_SERVER:
+    from tkinter import *
+    from tkinter.messagebox import askyesno
+    from PIL import Image
+    import pystray
 
 from ZSDR import roll_dice
 from monster_scraper import cache_monsters
