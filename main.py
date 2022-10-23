@@ -10,7 +10,7 @@ import re
 import signal
 import subprocess
 import sys
-if not is_server:
+if not IS_SERVER:
     from tkinter import *
     from tkinter.messagebox import askyesno
 from zipfile import ZipFile
