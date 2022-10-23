@@ -164,16 +164,17 @@ if __name__ == "__main__":
                 with ZipFile(monster_statblocks_file) as zipfile:
                     MONSTER_STATBLOCKS_CACHED = len(zipfile.namelist()) == MONSTER_COUNT
 
-        stats = not MONSTER_STATS_CACHED and monster_stats_file
-        statblocks = not MONSTER_STATBLOCKS_CACHED and path.dirname(monster_statblocks_file)
-        if stats:
-            stats = input("Do you want to cache the monster stats JSON? (y/n): ").lower() == "y" and stats
-            MONSTER_STATS_CACHED = not stats
-        if statblocks:
-            statblocks = input("Do you want to cache the monster statblock images? (y/n): ").lower() == "y" and statblocks
-            MONSTER_STATBLOCKS_CACHED = not statblocks
+        #stats = not MONSTER_STATS_CACHED and monster_stats_file
+        #statblocks = not MONSTER_STATBLOCKS_CACHED and path.dirname(monster_statblocks_file)
+        #if stats:
+        #    stats = input("Do you want to cache the monster stats JSON? (y/n): ").lower() == "y" and stats
+        #    MONSTER_STATS_CACHED = not stats
+        #if statblocks:
+        #    statblocks = input("Do you want to cache the monster statblock images? (y/n): ").lower() == "y" and statblocks
+        #    MONSTER_STATBLOCKS_CACHED = not statblocks
 
-        cache_monsters(stats, statblocks)
+        #cache_monsters(stats, statblocks)
+        cache_monsters(not MONSTER_STATS_CACHED and monster_stats_file, not MONSTER_STATBLOCKS_CACHED and path.dirname(monster_statblocks_file))
 
     populate_monsters()
 
