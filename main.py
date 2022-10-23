@@ -2,6 +2,7 @@ import atexit
 import builtins
 import json
 import os
+import platform
 import os.path as path
 import re
 import signal
@@ -66,6 +67,8 @@ MONTHS = ["Hammer", "Alturiak", "Ches", "Tarsakh", "Mirtul", "Kythorn", "Flameru
           "Uktar", "Nightal"]
 ALL_SPELLS = {}
 SPELLS_BY_CLASS_AND_LEVEL = {}
+
+IS_SERVER = platform.system() == "Linux"
 
 with open("tables.json") as f:
     TABLES = json.load(f)
@@ -164,17 +167,21 @@ if __name__ == "__main__":
                 with ZipFile(monster_statblocks_file) as zipfile:
                     MONSTER_STATBLOCKS_CACHED = len(zipfile.namelist()) == MONSTER_COUNT
 
-        #stats = not MONSTER_STATS_CACHED and monster_stats_file
-        #statblocks = not MONSTER_STATBLOCKS_CACHED and path.dirname(monster_statblocks_file)
-        #if stats:
-        #    stats = input("Do you want to cache the monster stats JSON? (y/n): ").lower() == "y" and stats
-        #    MONSTER_STATS_CACHED = not stats
-        #if statblocks:
-        #    statblocks = input("Do you want to cache the monster statblock images? (y/n): ").lower() == "y" and statblocks
-        #    MONSTER_STATBLOCKS_CACHED = not statblocks
+        stats = not MONSTER_STATS_CACHED and monster_stats_file
+        statblocks = not MONSTER_STATBLOCKS_CACHED and path.dirname(monster_statblocks_file)
 
-        #cache_monsters(stats, statblocks)
-        cache_monsters(not MONSTER_STATS_CACHED and monster_stats_file, not MONSTER_STATBLOCKS_CACHED and path.dirname(monster_statblocks_file))
+        if stats or stat_blocks and IS_SERVER:
+            print("ERROR: stats JSON or statblock images not loaded properly!")
+            break
+
+        if stats:
+           stats = input("Do you want to cache the monster stats JSON? (y/n): ").lower() == "y" and stats
+           MONSTER_STATS_CACHED = not stats
+        if statblocks:
+           statblocks = input("Do you want to cache the monster statblock images? (y/n): ").lower() == "y" and statblocks
+           MONSTER_STATBLOCKS_CACHED = not statblocks
+
+        cache_monsters(stats, statblocks)
 
     populate_monsters()
 
