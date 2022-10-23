@@ -95,7 +95,7 @@ def cache_monsters(stats_file, statblocks_directory):
     driver = ChromeWithPrefs(options=options)
     driver.get("https://5e.tools/bestiary.html")
 
-    with open("script.js") as f:
+    with open("monster_scraper_script.js") as f:
         script = f.read()
 
     start = time()

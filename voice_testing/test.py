@@ -1,26 +1,14 @@
 import os
 
 import discord
-import pydub
 from discord.member import Member
-from discord.gateway import DiscordVoiceWebSocket
-from discord.enums import *
-from discord.player import *
-import struct
-from socket import socket
-import nacl
 import speech_recognition as sr
-from time import sleep
-from threading import Thread
 from gtts import gTTS
-from os import path
-from FFmpegPCMAudioGTTS import FFmpegPCMAudioGTTS
-from io import BufferedIOBase, BytesIO
-from typing import *
+from voice_testing.FFmpegPCMAudioGTTS import FFmpegPCMAudioGTTS
+from io import BytesIO
 import subprocess
 
 os.environ['PATH'] += os.pathsep + r'C:\Users\Malcolm\Downloads\ffmpeg-2022-09-07-git-e4c1272711-essentials_build\bin'
-from pydub import AudioSegment
 
 from voice_recv import *
 

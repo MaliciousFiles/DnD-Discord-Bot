@@ -3,7 +3,6 @@ from gtts import gTTS
 from io import BytesIO
 import speech_recognition as sr
 from time import sleep
-import wave
 
 import threading
 import os
@@ -18,7 +17,7 @@ os.environ['PATH'] += os.pathsep + (
                       r'C:\Users\Malcolm\Downloads\ffmpeg-2022-09-07-git-e4c1272711-essentials_build\bin' if platform.platform() == 'Windows'
                       else r'/Users/malcolmroalson/Downloads/ffmpeg'
                     )
-from FFmpegPCMAudioGTTS import FFmpegPCMAudioGTTS
+from voice_testing.FFmpegPCMAudioGTTS import FFmpegPCMAudioGTTS
 
 intents = discord.Intents.default()
 bot = discord.Client(intents=intents)
