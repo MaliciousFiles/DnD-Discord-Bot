@@ -172,7 +172,7 @@ if __name__ == "__main__":
         stats = not MONSTER_STATS_CACHED and monster_stats_file
         statblocks = not MONSTER_STATBLOCKS_CACHED and path.dirname(monster_statblocks_file)
 
-        if stats or stat_blocks and IS_SERVER:
+        if stats or statblocks and IS_SERVER:
             print("ERROR: stats JSON or statblock images not loaded properly!")
             break
 
