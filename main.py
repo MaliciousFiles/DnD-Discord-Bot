@@ -1159,7 +1159,7 @@ if __name__ == "__main__":
 
             title = ability.replace("_", " ").title().replace("Of", "of")
 
-            ability = await get_ability(ctx, title, saving_throw, True)
+            ability = await get_ability(ctx, title, saving_throw, True, user=player)
             if not ability: return
 
             dice = "1d20" + ability[0]
