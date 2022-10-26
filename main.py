@@ -537,7 +537,7 @@ if __name__ == "__main__":
 
     async def query_AC(ctx: interactions.CommandContext, path: str, autocomplete: bool = False, method = requests.get, user: interactions.Member = None):
         if path and not path.endswith("/"): path += "/"
-        if not autocomplete: await ctx.defer(True)
+        if not autocomplete: await ctx.defer(user is not None)
         if not user: user = ctx.author
 
         async def error():
@@ -1173,7 +1173,7 @@ if __name__ == "__main__":
                 ephemeral=player is not None)
         except RuntimeError:
             await ctx.send(embeds=interactions.Embed(title="Error",
-                                                     description="Dice error, make sure you follow the formatting rules. `/roll help` for more info",
+                                                     description="Dice error, make sure you follow the formatting rules. ~~`/roll help` for more info~~",  # TODO: implement /roll help
                                                      color=interactions.Color.red()), ephemeral=True)
 
     def get_from_table(table: dict, roll: int):
@@ -3285,7 +3285,7 @@ if __name__ == "__main__":
 
     if not IS_SERVER:
         def confirm_quit():
-            if askyesno("Confirm", "Are you sure you want to exit?"):
+            if askyesno("Confirm", "Are you sure you want to quit?"):
                 quit_app()
 
         menu = (
