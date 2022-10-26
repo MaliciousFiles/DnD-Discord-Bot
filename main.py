@@ -380,17 +380,17 @@ if __name__ == "__main__":
         return min(max(-5 + int(score/2), -5), 10)
 
 
-    async def get_ability(ctx: interactions.CommandContext, ability: str, saving_throw: bool = False, spread_out: bool = False, user: interactions.Member = None):
+    async def get_ability(ctx: interactions.CommandContext, ability: str, saving_throw: bool = False, spread_out: bool = False, user: interactions.Member = None, ephemeral: bool = True):
         ability_score = ability == "Strength" or ability == "Dexterity" or ability == "Constitution" or ability == "Intelligence" or ability == "Wisdom" or ability == "Charisma"
 
-        stats = await query_AC(ctx, "{uuid}/"+("saving_throws" if saving_throw and ability_score else "ability_scores" if ability_score else "skills"), user=user)
+        stats = await query_AC(ctx, "{uuid}/"+("saving_throws" if saving_throw and ability_score else "ability_scores" if ability_score else "skills"), user=user, ephemeral=ephemeral)
 
         if not stats: return
 
         stat = [stat for stat in stats if stat['name'].lower() == ability.lower()][0]
 
-        level = (await query_AC(ctx, "characters/{uuid}/profile", user=user))['level']
-        prof_mod = (await query_AC(ctx, "characters/{uuid}/other_stats", user=user))['proficiencyModifier']
+        level = (await query_AC(ctx, "characters/{uuid}/profile", user=user, ephemeral=ephemeral))['level']
+        prof_mod = (await query_AC(ctx, "characters/{uuid}/other_stats", user=user, ephemeral=ephemeral))['proficiencyModifier']
 
         if 'proficiency' not in stat or stat['proficiency'] == False or stat['proficiency'] == 'not':
             proficiency = 0
@@ -535,9 +535,9 @@ if __name__ == "__main__":
         return False
 
 
-    async def query_AC(ctx: interactions.CommandContext, path: str, autocomplete: bool = False, method = requests.get, user: interactions.Member = None):
+    async def query_AC(ctx: interactions.CommandContext, path: str, autocomplete: bool = False, method = requests.get, user: interactions.Member = None, ephemeral: bool = True):
         if path and not path.endswith("/"): path += "/"
-        if not autocomplete: await ctx.defer(user is not None)
+        if not autocomplete: await ctx.defer(ephemeral)
         if not user: user = ctx.author
 
         async def error():
@@ -1159,7 +1159,7 @@ if __name__ == "__main__":
 
             title = ability.replace("_", " ").title().replace("Of", "of")
 
-            ability = await get_ability(ctx, title, saving_throw, True, user=player)
+            ability = await get_ability(ctx, title, saving_throw, True, ephemeral=player is not None)
             if not ability: return
 
             dice = "1d20" + ability[0]
