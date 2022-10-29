@@ -572,6 +572,7 @@ if __name__ == "__main__":
             response = method(f"https://app.adventurerscodex.com/api/core/{path}", headers=headers)
             status_code = response.status_code
 
+            print(status_code)
             if status_code == 401:
                 if not await set_access_token(ctx):
                     await error()
