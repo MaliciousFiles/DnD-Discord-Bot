@@ -520,9 +520,7 @@ if __name__ == "__main__":
             js_file = r.url + "main." + r.text.split('<script type="text/javascript" src="main.')[1].split('"></script>')[0]
             r = requests.get(js_file)
 
-            print("before client_id")
             client_id = r.text.split('client_id:"')[1].split('"}')[0]
-            print(f"after client_id: {client_id}")
 
             params = {
                 'client_id': client_id,
@@ -531,6 +529,7 @@ if __name__ == "__main__":
             r = requests.get(f"https://app.adventurerscodex.com/api/o/authorize/", cookies=cookies, headers=headers,
                              params=params)
             creds[ACCESS_TOKEN_KEY] = AES.encrypt(r.url.split('#access_token=')[1].split('&')[0])
+            print(f"access token set: {creds[ACCESS_TOKEN_KEY]}")
             save_data()
 
             return True
