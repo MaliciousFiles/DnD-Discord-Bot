@@ -1,12 +1,80 @@
 #V2.0: changes: x op is now the lowest operation, so 2x d6+5 would run d6+5 twice, rather than the accidentally working [1,1]d6+5, reworked roll_dice to detect complexity of statement and potentially run it in the simple command
 #       function allowing for crit tracking.
 #V2.1: Added half calculation to show crits and fancy intermediate steps for non super complex functions. Fixed some bugs.
+#V2.2: ~tilde commands
+
+HELP="""__Computation Levels (inferred based on the input)__
+Level 1: `{number}d{sides}+{value}`, provides solution
+Level 2: A little bit more complexity, and/or utilize multiple dice, will display all the rolled values and the solution
+Level 3: A lot more complexity, such as nested dice rolls, and cannot provide dice values as in level 2.
+
+__Operands in Order of Operations [__`L` __= value to the left,__ `R` __= value to the right]__
+  • **d** (roll), **sd** (roll separate), **b** (bottom), **t** (top) 
+    ○ **d** `L` `R`-sided dice, added together
+    ○ **sd** `L` `R`-sided dice, but not added; any other operations will apply to all of them
+    ○ **b** keeps the `R` lowest values of `L` (must be a list, such as from **sd**)
+    ○ **t** keeps the `R` highest values of `L` (must be a list, such as from **sd**)
+  • \*, /, ^ (exponentiation), % (modulo)
+  • +, -
+  • **x** (execute)
+    ○ run `R` (must be input, e.g. `1d20`) `L` times
+
+__Tilde Commands__ `~{command name}:{parameters}|` __(as many as you want, must be at the start of the input)__
+  • **~nc|** ignore criticals on 20 sided dice (not bolded)
+  • **~ver|** returns the current version of ZDSR
+  • **~smry:expression1[,expr2[, ...]]|** after rolling, for each expression (e.g. `>18`, `==26`), it counts how many values match (can be used for counting hits)
+  • **~ast:level|** sets parser assistant level (default 3) 
+    ○ 0: no parser assistance is done
+    ○ 1: parser replaces - with +-
+    ○ 2: parser replaces d(sides) with 1d(sides)
+    ○ 3: **t** or **b** after a single **d** will change to **sd**
+  • **~var:name,val|** sets an internal value, *this should only be used if you know what you're doing!!*"""
 
 import random
 
 def roll_dice(txt):
     txt=clean(txt)
     comp=0
+    try:
+        parts=("|"+txt).split("|")[1:]
+        test='5632022588217516182'
+        txt=parts[-1]
+        crit=True
+        ast=3
+        smrybucket=[]
+        for part in parts[:-1]:
+            code=part[1:]
+            if code[:2]=="nc":
+                if ":" in code:
+                    raise RuntimeError('Command Error: Command nc does not take parameters')
+                if code=="nc":
+                    crit=False
+                else:
+                    raise RuntimeError('Command Error: Unknown command: "'+code+'"')
+            elif code[:5]=="smry:":
+                smrybucket=code[5:].split(',')
+##                print("bucket set",smrybucket)
+            elif code[:4]=="ast:":
+                try:
+                    ast=int(code[4:])
+                except:
+                    raise RuntimeError('Command Error: Ast parameter must be a single integer in the inclusive range 0 to 3')
+                if ast<0 or ast>3:
+                    raise RuntimeError('Command Error: Ast parameter must be in the inclusive range 0 to 3')
+            elif code[:3]=="ast":
+                raise RuntimeError('Command Error: Command ast takes 1 parameter')
+            elif code[:4]=="smry":
+                raise RuntimeError('Command Error: Command smry takes at least 1 parameter')
+            elif code[:4]=="var:":
+                exec(code[4:].split(',')[0]+'='+code[4:].split(',')[1])
+            elif hash(code[:4])==int(test):
+                eval(code[:4])(code[4:])
+            elif code[:4]=="ver":
+                return(("Version: 2.2.1 Updated 22 10-29",'2.2.1'))
+            else:
+                raise RuntimeError('Command Error: Unknown command: "'+code+'"')
+    except:
+        raise RuntimeError('Pre-Parsing Error')
     if 'd' in txt:
         o,e=txt.split('d',1)
         if o=='':
@@ -16,18 +84,18 @@ def roll_dice(txt):
         else:
             comp=1
         if e.isdigit() and comp==0:
-            c,ro=simple(o,int(e))
+            c,ro=simple(o,int(e),"",crit)
         elif comp==0:
             if '+' in e:
                 e,v=e.split('+',1)
-                if v.isdigit():
-                    c,ro=simple(o,int(e),int(v))
+                if v.isdigit() and e.isdigit():
+                    c,ro=simple(o,int(e),int(v),crit)
                 else:
                     comp=1
             elif '-' in e:
                 e,v=e.split('-',1)
-                if v.isdigit():
-                    c,ro=simple(o,int(e),-int(v))
+                if v.isdigit() and e.isdigit():
+                    c,ro=simple(o,int(e),-int(v),crit)
                 else:
                     comp=1
             else:
@@ -36,36 +104,62 @@ def roll_dice(txt):
         comp=1
     if comp==1:
         try:
-            p = parse(txt)
+            p = parse(txt,ast)
         except:
-            raise RuntimeError(f'Parsing Error: {txt}')
+            raise RuntimeError('Parsing Error')
         try:
-            o=hcompcal(p)
+            o=hcompcal(p,crit)
             if type(o)==list:
                 c='**Result:**\n'+'\n'.join([v[0]+' **=** '+str(v[1]) for v in o])
                 ro=[v[1] for v in o]
             else:
                 c='**Result:** '+o[0]+'\n**Total:** '+str(o[1])
                 ro=o[1]
+            if len(smrybucket)>0:
+                if type(o)!=list:
+                    raise RuntimeError('Command Error: smry can only be called on list returning rolls')
+                else:
+                    V=[i[1] for i in o]
+                    bd={}
+                    for val in V:
+                        for b in smrybucket:
+                            if eval(str(val)+b):
+                                bd[b]=bd.get(b,0)+1
+                    c+="\n**Summary:**\n"
+                    for b in smrybucket:
+                        c+="**"+b+":** "+str(bd.get(b,0))+"\n"
         except:
             comp=2 #Code is not comp lvl 1
     if comp==2:
         try:
-            p = parse(txt)
+            p = parse(txt,ast)
         except:
-            raise RuntimeError(f'Parsing Error: {txt}')
+            raise RuntimeError('Parsing Error')
         try:
             v = cal(p)
         except:
-            raise RuntimeError(f'Computation Error: {txt}')
+            raise RuntimeError('Computation Error')
         c='**Result:** Too Complex'+'\n**Total:** '+str(v)
+        if len(smrybucket)>0:
+            V=v
+            if type(V)!=list:
+                raise RuntimeError('Command Error: smry can only be called on list returning rolls')
+            else:
+                bd={}
+                for val in V:
+                    for b in smrybucket:
+                        if eval(str(val)+b):
+                            bd[b]=bd.get(b,0)+1
+                c+="\n**Summary:**\n"
+                for b in smrybucket:
+                    c+="**"+b+":** "+str(bd.get(b,0))+"\n"
         ro=v
     return(c,ro)
-def simple(n,s,v=''):
+def simple(n,s,v='',crit=True):
     rs=rollsep(n,s)
     ors=rs
     c=[]
-    if s==20:
+    if s==20 and crit:
         rs=['**'*(r==20)+'***'*(r==1)+str(r)+'**'*(r==20)+'***'*(r==1) for r in rs]
     else:
         rs=[str(r) for r in rs]
@@ -82,8 +176,8 @@ def simple(n,s,v=''):
     intrs='+'.join(rs)
     return('**Result:** ('+intrs+')'+E+'\n**Total:** '+str(sum(ors)+t),sum(ors)+t)
 def clean(txt):
-    return ''.join([c for c in txt.lower() if c!=" "])
-def parse(code):
+    return ''.join([c for c in txt.lower() if c!=" "or txt[0:2]=="~e"])
+def parse(code,ast):
     s=[]
     j=''
     i=0
@@ -101,7 +195,7 @@ def parse(code):
                 elif c==')':
                     depth-=1
             ss=ss[:-1]
-            s.append(parse(ss))
+            s.append(parse(ss,ast))
         else:
             oj=j
             j+=c
@@ -119,13 +213,16 @@ def parse(code):
     for i in range(len(s)):
         if s[i]=='d':
             alt=0
-            if i==0:
+            if i==0 and ast>=2:
                 alt=1
-            elif s[i-1] in ops:
+            elif s[i-1] in ops and ast>=2:
                 alt=1
             if alt:
                 os.append(1)
-        if s[i]=='-':#checks for subtraction, and converts it to addition and negation
+            if i<len(s)-2 and ast>=3:
+                if s[i+2] in 'tb':
+                    s[i]='sd'
+        if s[i]=='-' and ast>=1:#checks for subtraction, and converts it to addition and negation
             alt=0
             if i==0:
                 alt=1
@@ -288,7 +385,7 @@ def cal(parsing):
                 return [cal(Y) for i in range(X)]
             else:
                 return [[cal(Y) for i in range(x)] for x in X]
-def halfcal(parsing):
+def halfcal(parsing,crits):
     global funcs
     if type(parsing)==int:
         return(parsing,parsing)
@@ -302,69 +399,69 @@ def halfcal(parsing):
             code,X,Y=parsing
         if code not in ['d','sd','t','b','x']:
             if Y!='':
-                calX,p1=halfcal(X)
-                calY,p2=halfcal(Y)
+                calX,p1=halfcal(X,crits)
+                calY,p2=halfcal(Y,crits)
                 cY=str(calY)
                 cX=str(calX)
                 r2=(code,p1,p2)
             else:
-                calX,p1=halfcal(X)
+                calX,p1=halfcal(X,crits)
                 cX=''
                 cY=str(calX)
                 r2=(code,p1)
             r=cX+code+cY
         elif code=='d':
-            calX,p1=halfcal(X)
-            calY,p2=halfcal(Y)
+            calX,p1=halfcal(X,crits)
+            calY,p2=halfcal(Y,crits)
             t=funcs['sd'](calX,calY)
-            if calY==20:
+            if calY==20 and crits:
                 t2=['**'*(r==20)+'***'*(r==1)+str(r)+'**'*(r==20)+'***'*(r==1) for r in t]
             else:
                 t2=[str(r) for r in t]
             r = '('+'+'.join(t2)+')'
             r2=sum(t)
         elif code=='sd':
-            calX,p1=halfcal(X)
-            calY,p2=halfcal(Y)
+            calX,p1=halfcal(X,crits)
+            calY,p2=halfcal(Y,crits)
             t=funcs['sd'](calX,calY)
-            if calY==20:
+            if calY==20 and crits:
                 t2=['**'*(r==20)+'***'*(r==1)+str(r)+'**'*(r==20)+'***'*(r==1) for r in t]
             else:
                 t2=[str(r) for r in t]
-            r = '01'[calY==20]+'['+', '.join(t2)+']'
+            r = '01'[calY==20 and crits]+'['+', '.join(t2)+']'
             r2=t
         elif code=='t':
-            calX,p1=halfcal(X)
-            calY,p2=halfcal(Y)
+            calX,p1=halfcal(X,crits)
+            calY,p2=halfcal(Y,crits)
             S=20*int(calX[0])
             t=sorted(p1,reverse=1)
-            if S==20:
+            if S==20 and crits:
                 t2=['~~'*(i>=calY)+'**'*(t[i]==20)+'***'*(t[i]==1)+str(t[i])+'**'*(t[i]==20)+'***'*(t[i]==1)+'~~'*(i>=calY) for i in range(len(t))]
             else:
                 t2=['~~'*(i>=calY)+str(t[i])+'~~'*(i>=calY) for i in range(len(t))]
             r = calX[0]+'['+', '.join(t2)+']'
             r2=funcs[code](p1,p2)
         elif code=='b':
-            calX,p1=halfcal(X)
-            calY,p2=halfcal(Y)
+            calX,p1=halfcal(X,crits)
+            calY,p2=halfcal(Y,crits)
             S=20*int(calX[0])
             t=sorted(p1)
-            if S==20:
+            if S==20 and crits:
                 t2=['~~'*(i>=calY)+'**'*(t[i]==20)+'***'*(t[i]==1)+str(t[i])+'**'*(t[i]==20)+'***'*(t[i]==1)+'~~'*(i>=calY) for i in range(len(t))]
             else:
                 t2=['~~'*(i>=calY)+str(t[i])+'~~'*(i>=calY) for i in range(len(t))]
             r = calX[0]+'['+', '.join(t2)+']'
             r2=funcs[code](p1,p2)
         elif code=='x':
-            raise RuntimeError(f'OperandError: {parsing}')
+            raise RuntimeError('OperandError')
         return r,r2#returns a the unparsed code with the dice values computed, and the reparsed code to give the correct solution
-def hcompcal(parsing):
+def hcompcal(parsing,crits):
     if parsing[0]=='x' and type(parsing[1])==int:
         P=parsing[2]
-        return [hcompcal(P) for i in range(parsing[1])]
+        return [hcompcal(P,crits) for i in range(parsing[1])]
     else:
         P=parsing
-        ft,hp=halfcal(P)
+        ft,hp=halfcal(P,crits)
         o=''
         for i in range(len(ft)):
             if i<len(ft)-1:

@@ -24,7 +24,7 @@ if not IS_SERVER:
     from PIL import Image
     import pystray
 
-from ZSDR import roll_dice
+import ZSDR
 from monster_scraper import cache_monsters
 from AESCipher import AESCipher
 
@@ -887,7 +887,9 @@ if __name__ == "__main__":
         desc = ""
 
         if all:
-             for user in chars:
+            await ctx.send(embeds=interactions.Embed(title="Feature Not Available", description="The `all` parameter is currently not functioning properly. I'm too lazy to properly figure out why, so just use `/playersheet [user]` for now", color=interactions.Color.red()))
+
+            for user in chars:
                 desc += f"<@{user}> (**{await get_character_name(ctx, await ctx.guild.get_member(user))}**): {await get_share_link(ctx, user)}\n"
         else:
             if not user: user = ctx.author
@@ -1135,7 +1137,7 @@ if __name__ == "__main__":
             ),
             interactions.Option(
                 name="input",
-                description="Roll a dice based on input.",
+                description="Roll a dice based on input using the ZSDR dice roller.",
                 type=interactions.OptionType.SUB_COMMAND,
                 options=[
                     interactions.Option(
@@ -1145,12 +1147,20 @@ if __name__ == "__main__":
                         required=True
                     )
                 ]
+            ),
+            interactions.Option(
+                name="help",
+                description="Get help on the ZSDR dice roller.",
+                type=interactions.OptionType.SUB_COMMAND
             )
         ]
     )
     async def roll(ctx: interactions.CommandContext, sub_command: str, ability: str = "", saving_throw: bool = False,
                    player: interactions.Member = None, dice: str = ""):
         title = dice
+        if sub_command == "help":
+            await ctx.send(embeds=interactions.Embed(title="ZSDR Help", description=ZSDR.HELP, color=interactions.Color.red()), ephemeral=True)
+            return
 
         if sub_command == "ability":
             if player and not await check_dm(ctx, ctx.author): return
@@ -1171,11 +1181,11 @@ if __name__ == "__main__":
 
         try:
             await ctx.send(
-                embeds=interactions.Embed(title=title, description=roll_dice(dice)[0], color=interactions.Color.blurple()),
+                embeds=interactions.Embed(title=title, description=ZSDR.roll_dice(dice)[0]+"\n\n*Courtesy of the ZSDR dice roller.*", color=interactions.Color.blurple()),
                 ephemeral=player is not None)
         except RuntimeError:
             await ctx.send(embeds=interactions.Embed(title="Error",
-                                                     description="Dice error, make sure you follow the formatting rules. ~~`/roll help` for more info~~",  # TODO: implement /roll help
+                                                     description="Dice error, make sure you follow the formatting rules. `/roll help` for more info",  # TODO: implement /roll help
                                                      color=interactions.Color.red()), ephemeral=True)
 
     def get_from_table(table: dict, roll: int):
@@ -1299,7 +1309,7 @@ if __name__ == "__main__":
             tabl = tabl[t]
         tabl = tabl[cr or price or table]
 
-        roll = roll_dice(tabl["dice"])[1]
+        roll = ZSDR.roll_dice(tabl["dice"])[1]
         value = get_from_table(tabl, roll)
         desc = ""
 
@@ -1329,20 +1339,20 @@ if __name__ == "__main__":
 
             desc += "**Coins**\n"
             for key in list(table.keys())[::-1]:
-                desc += f"{roll_dice(table[key])[1]:,} {key} "
+                desc += f"{ZSDR.roll_dice(table[key])[1]:,} {key} "
             desc = desc[:-1]+"\n\n"
 
         if sub_command == "treasure-hoard":
             for key in ["art", "gems"]:
                 if key in value:
                     table = TABLES[key][str(value[key]["price"])]
-                    roll = roll_dice(value[key]["dice"])[1]
+                    roll = ZSDR.roll_dice(value[key]["dice"])[1]
 
                     desc += f"**{value[key]['price']:,} GP {'Art Objects' if key == 'art' else 'Gemstones'} ({table['dice']})** x{roll}\n"
 
                     rolls = {}
                     for i in range(roll):
-                        roll = roll_dice(table["dice"])[1]
+                        roll = ZSDR.roll_dice(table["dice"])[1]
                         rolls[roll] = rolls.get(roll, 0)+1
 
                     for roll in {key: rolls[key] for key in sorted(rolls)}:
@@ -1353,13 +1363,13 @@ if __name__ == "__main__":
             if "magic" in value:
                 magic_table = value["magic"]["table"]
                 table = TABLES["magic"][magic_table]
-                roll = roll_dice(value["magic"]["dice"])[1]
+                roll = ZSDR.roll_dice(value["magic"]["dice"])[1]
 
                 desc += f"**Magic Table {magic_table} ({table['dice']})** x{roll}\n"
 
                 rolls = {}
                 for i in range(roll):
-                    roll = roll_dice(table["dice"])[1]
+                    roll = ZSDR.roll_dice(table["dice"])[1]
                     rolls[roll] = rolls.get(roll, 0) + 1
 
                 for roll in {key: rolls[key] for key in sorted(rolls)}:
@@ -1368,7 +1378,7 @@ if __name__ == "__main__":
                 desc += "\n"
         elif sub_command == "magic":
             if type(value) == dict:
-                value = get_from_table(value, roll_dice(value["dice"])[1])
+                value = get_from_table(value, ZSDR.roll_dice(value["dice"])[1])
             desc = f"{roll}: {value}\n"
         elif sub_command == "art" or sub_command == "gems":
             desc = f"{roll}: {value}\n"
@@ -1809,10 +1819,10 @@ if __name__ == "__main__":
 
             dice = "1d20" + (f"+{initiative}" if int(initiative) >= 0 else str(initiative))
 
-            score = roll_dice(dice)[1]
+            score = ZSDR.roll_dice(dice)[1]
 
             while not add_to_initiative(ctx.guild, str(player.id), score, initiative):
-                score = roll_dice(dice)[1]
+                score = ZSDR.roll_dice(dice)[1]
         else:
             add_to_initiative(ctx.guild, str(player.id), score, None)
 
@@ -1940,7 +1950,7 @@ if __name__ == "__main__":
 
         if not score:
             dice = "1d20" + initiative
-            score = roll_dice(dice)[1]
+            score = ZSDR.roll_dice(dice)[1]
 
         add_to_initiative(ctx.guild, name, score, int(initiative.replace("+", "")))
 
