@@ -64,8 +64,6 @@ def roll_dice(txt):
                 raise RuntimeError('Command Error: Command ast takes 1 parameter')
             elif code[:4]=="smry":
                 raise RuntimeError('Command Error: Command smry takes at least 1 parameter')
-            elif hash(code[:4])==int(test):
-                eval(code[:4])(code[4:])
             elif code[:4]=="ver":
                 return(("Version: 2.2.3 Updated 22 10-29",'2.2.3'))
             else:
