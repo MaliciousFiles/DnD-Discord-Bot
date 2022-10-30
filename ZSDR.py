@@ -36,7 +36,6 @@ def roll_dice(txt):
     comp=0
     try:
         parts=("|"+txt).split("|")[1:]
-        test='5632022588217516182'
         txt=parts[-1]
         crit=True
         ast=3
