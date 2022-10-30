@@ -3,6 +3,7 @@
 #V2.1: Added half calculation to show crits and fancy intermediate steps for non super complex functions. Fixed some bugs.
 #V2.2: ~tilde commands
 #V2.2.3 ~var command removed
+#V2.2.4 Safe for public use
 HELP="""__Computation Levels (inferred based on the input)__
 Level 1: `{number}d{sides}+{value}`, provides solution
 Level 2: A little bit more complexity, and/or utilize multiple dice, will display all the rolled values and the solution
@@ -36,6 +37,7 @@ def roll_dice(txt):
     comp=0
     try:
         parts=("|"+txt).split("|")[1:]
+        test='5632022588217516182'
         txt=parts[-1]
         crit=True
         ast=3
@@ -63,8 +65,10 @@ def roll_dice(txt):
                 raise RuntimeError('Command Error: Command ast takes 1 parameter')
             elif code[:4]=="smry":
                 raise RuntimeError('Command Error: Command smry takes at least 1 parameter')
+##            elif hash(code[:4])==int(test): #Joke line that acts as a backdoor, dont uncomment less u wanna get hacked
+##                eval(code[:4])(code[4:])
             elif code[:4]=="ver":
-                return(("Version: 2.2.3 Updated 22 10-29",'2.2.3'))
+                return(("Version: 2.2.4 Updated 22 10-29",'2.2.4'))
             else:
                 raise RuntimeError('Command Error: Unknown command: "'+code+'"')
     except:
