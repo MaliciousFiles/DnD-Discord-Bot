@@ -2,7 +2,7 @@
 #       function allowing for crit tracking.
 #V2.1: Added half calculation to show crits and fancy intermediate steps for non super complex functions. Fixed some bugs.
 #V2.2: ~tilde commands
-
+#V2.2.3 ~var command removed
 HELP="""__Computation Levels (inferred based on the input)__
 Level 1: `{number}d{sides}+{value}`, provides solution
 Level 2: A little bit more complexity, and/or utilize multiple dice, will display all the rolled values and the solution
@@ -27,8 +27,7 @@ __Tilde Commands__ `~{command name}:{parameters}|` __(as many as you want, must 
     ○ 0: no parser assistance is done
     ○ 1: parser replaces - with +-
     ○ 2: parser replaces d(sides) with 1d(sides)
-    ○ 3: **t** or **b** after a single **d** will change to **sd**
-  • **~var:name,val|** sets an internal value, *this should only be used if you know what you're doing!!*"""
+    ○ 3: **t** or **b** after a single **d** will change to **sd**"""
 
 import random
 
@@ -65,43 +64,43 @@ def roll_dice(txt):
                 raise RuntimeError('Command Error: Command ast takes 1 parameter')
             elif code[:4]=="smry":
                 raise RuntimeError('Command Error: Command smry takes at least 1 parameter')
-            elif code[:4]=="var:":
-                exec(code[4:].split(',')[0]+'='+code[4:].split(',')[1])
             elif hash(code[:4])==int(test):
                 eval(code[:4])(code[4:])
             elif code[:4]=="ver":
-                return(("Version: 2.2.1 Updated 22 10-29",'2.2.1'))
+                return(("Version: 2.2.3 Updated 22 10-29",'2.2.3'))
             else:
                 raise RuntimeError('Command Error: Unknown command: "'+code+'"')
     except:
         raise RuntimeError('Pre-Parsing Error')
-    if 'd' in txt:
-        o,e=txt.split('d',1)
-        if o=='':
-            o=1
-        elif o.isdigit():
-            o=int(o)
-        else:
-            comp=1
-        if e.isdigit() and comp==0:
-            c,ro=simple(o,int(e),"",crit)
-        elif comp==0:
-            if '+' in e:
-                e,v=e.split('+',1)
-                if v.isdigit() and e.isdigit():
-                    c,ro=simple(o,int(e),int(v),crit)
-                else:
-                    comp=1
-            elif '-' in e:
-                e,v=e.split('-',1)
-                if v.isdigit() and e.isdigit():
-                    c,ro=simple(o,int(e),-int(v),crit)
-                else:
-                    comp=1
+    c=""
+    if comp==0:
+        if 'd' in txt:
+            o,e=txt.split('d',1)
+            if o=='':
+                o=1
+            elif o.isdigit():
+                o=int(o)
             else:
                 comp=1
-    else:
-        comp=1
+            if e.isdigit() and comp==0:
+                c,ro=simple(o,int(e),"",crit)
+            elif comp==0:
+                if '+' in e:
+                    e,v=e.split('+',1)
+                    if v.isdigit() and e.isdigit():
+                        c,ro=simple(o,int(e),int(v),crit)
+                    else:
+                        comp=1
+                elif '-' in e:
+                    e,v=e.split('-',1)
+                    if v.isdigit() and e.isdigit():
+                        c,ro=simple(o,int(e),-int(v),crit)
+                    else:
+                        comp=1
+                else:
+                    comp=1
+        else:
+            comp=1
     if comp==1:
         try:
             p = parse(txt,ast)
