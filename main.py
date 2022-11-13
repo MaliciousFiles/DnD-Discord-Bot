@@ -888,6 +888,7 @@ if __name__ == "__main__":
 
         if all:
             print(str(ctx.guild.id))
+            print(get_data(ctx.guild).keys())
             print(get_data(ctx.guild)[CURRENT_CAMPAIGN_KEY])
             if str(ctx.guild.id) == '815693946655211530' and get_data(ctx.guild)[CURRENT_CAMPAIGN_KEY] == "Storm King's Thunder":
                 await ctx.send(embeds=interactions.Embed(title="Feature Not Available", description="The `all` parameter is currently not functioning properly specifically for this campaign. I haven't had the time to figure out why yet, so use `/playersheet [user]` for now", color=interactions.Color.red()))
