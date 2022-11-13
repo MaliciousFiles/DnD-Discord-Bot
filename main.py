@@ -887,7 +887,8 @@ if __name__ == "__main__":
         desc = ""
 
         if all:
-            await ctx.send(embeds=interactions.Embed(title="Feature Not Available", description="The `all` parameter is currently not functioning properly. I'm too lazy to properly figure out why, so just use `/playersheet [user]` for now", color=interactions.Color.red()))
+            # await ctx.send(embeds=interactions.Embed(title="Feature Not Available", description="The `all` parameter is currently not functioning properly. I'm too lazy to properly figure out why, so just use `/playersheet [user]` for now", color=interactions.Color.red()))
+            # return
 
             for user in chars:
                 desc += f"<@{user}> (**{await get_character_name(ctx, await ctx.guild.get_member(user))}**): {await get_share_link(ctx, user)}\n"
@@ -1159,7 +1160,7 @@ if __name__ == "__main__":
                    player: interactions.Member = None, dice: str = ""):
         title = dice
         if sub_command == "help":
-            await ctx.send(embeds=interactions.Embed(title="ZSDR Help", description=ZSDR.HELP, color=interactions.Color.red()), ephemeral=True)
+            await ctx.send(embeds=interactions.Embed(title="ZSDR Help", description=ZSDR.HELP, color=interactions.Color.blurple()), ephemeral=True)
             return
 
         if sub_command == "ability":
