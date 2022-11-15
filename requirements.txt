@@ -3,7 +3,7 @@ undetected-chromedriver==3.1.6
 interactions-tasks==1.0.0
 pystray==0.19.4
 python-dotenv==0.21.0
-Pillow==9.2.0
+Pillow==9.3.0
 appdirs==1.4.4
 future==0.18.2
 requests==2.28.1
