@@ -619,6 +619,7 @@ if __name__ == "__main__":
             desc="""
             **ability:** roll a die based on an ability from your character sheet (must have sheet linked)
             **input:** roll a die based on input
+            **help:** get help on the ZSDR dice roller.
             """
         elif command == "init":
             if subcommand == "add":
