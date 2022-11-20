@@ -529,7 +529,6 @@ if __name__ == "__main__":
             r = requests.get(f"https://app.adventurerscodex.com/api/o/authorize/", cookies=cookies, headers=headers,
                              params=params)
             creds[ACCESS_TOKEN_KEY] = AES.encrypt(r.url.split('#access_token=')[1].split('&')[0])
-            print(f"access token set: {creds[ACCESS_TOKEN_KEY]}")
             save_data()
 
             return True
