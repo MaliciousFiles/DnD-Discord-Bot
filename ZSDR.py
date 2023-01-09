@@ -4,6 +4,8 @@
 #V2.2: ~tilde commands
 #V2.2.3 ~var command removed
 #V2.2.4 Safe for public use
+#V2.2.5 Added ~vs command
+
 HELP="""__Computation Levels (inferred based on the input)__
 Level 1: `{number}d{sides}+{value}`, provides solution
 Level 2: A little bit more complexity, and/or utilize multiple dice, will display all the rolled values and the solution
@@ -24,6 +26,7 @@ __Tilde Commands__ `~{command name}:{parameters}|` __(as many as you want, must 
   • **~nc|** ignore criticals on 20 sided dice (not bolded)
   • **~ver|** returns the current version of ZDSR
   • **~smry:expression1[,expr2[, ...]]|** after rolling, for each expression (e.g. `>18`, `==26`), it counts how many values match (can be used for counting hits)
+  • **~vs:value|** short hand for smry commands with checks (smry for nat 1s, nat 20s, and rolling above (or equal) a target value)
   • **~ast:level|** sets parser assistant level (default 3) 
     ○ 0: no parser assistance is done
     ○ 1: parser replaces - with +-
@@ -35,6 +38,7 @@ import random
 def roll_dice(txt):
     txt=clean(txt)
     comp=0
+    ckcrt=0
     try:
         parts=("|"+txt).split("|")[1:]
         test='5632022588217516182'
@@ -53,7 +57,9 @@ def roll_dice(txt):
                     raise RuntimeError('Command Error: Unknown command: "'+code+'"')
             elif code[:5]=="smry:":
                 smrybucket=code[5:].split(',')
-##                print("bucket set",smrybucket)
+            elif code[:3]=="vs:":
+                smrybucket.append(">="+code[3:])
+                ckcrt=1
             elif code[:4]=="ast:":
                 try:
                     ast=int(code[4:])
@@ -68,7 +74,7 @@ def roll_dice(txt):
 ##            elif hash(code[:4])==int(test): #Joke line that acts as a backdoor, dont uncomment less u wanna get hacked
 ##                eval(code[:4])(code[4:])
             elif code[:4]=="ver":
-                return(("Version: 2.2.4 Updated 22 10-29",'2.2.4'))
+                return(("Version: 2.2.5 Updated 23 01-09",'2.2.5'))
             else:
                 raise RuntimeError('Command Error: Unknown command: "'+code+'"')
     except:
@@ -112,6 +118,11 @@ def roll_dice(txt):
             if type(o)==list:
                 c='**Result:**\n'+'\n'.join([v[0]+' **=** '+str(v[1]) for v in o])
                 ro=[v[1] for v in o]
+                n20=0
+                n1=0
+                if ckcrt:
+                    n20=sum([v[0][1:].split("]")[0].split(", ")[0][:4]=="**20" for v in o])
+                    n1=sum([v[0][1:].split("]")[0].split(", ")[0][:4]=="***1" for v in o])
             else:
                 c='**Result:** '+o[0]+'\n**Total:** '+str(o[1])
                 ro=o[1]
@@ -125,9 +136,13 @@ def roll_dice(txt):
                         for b in smrybucket:
                             if eval(str(val)+b):
                                 bd[b]=bd.get(b,0)+1
-                    c+="\n**Summary:**\n"
+                    c+="\n\n**Summary:**\n"
                     for b in smrybucket:
                         c+="**"+b+":** "+str(bd.get(b,0))+"\n"
+            if ckcrt:
+                c+="\n\n**Crits:**\n"
+                c+="Nat 20s: "+str(n20)
+                c+="\nNat 1s: "+str(n1)
         except:
             comp=2 #Code is not comp lvl 1
     if comp==2:
@@ -150,7 +165,7 @@ def roll_dice(txt):
                     for b in smrybucket:
                         if eval(str(val)+b):
                             bd[b]=bd.get(b,0)+1
-                c+="\n**Summary:**\n"
+                c+="\n\n**Summary:**\n"
                 for b in smrybucket:
                     c+="**"+b+":** "+str(bd.get(b,0))+"\n"
         ro=v
