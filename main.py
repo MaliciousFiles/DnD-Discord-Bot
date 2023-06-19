@@ -709,7 +709,8 @@ if __name__ == "__main__":
         else:
             desc = """
             \\* = base command, has subcommands (`/help [command]` to show)
-    
+            [DM] = DM only
+            
             **account:** link your Adventurer's Codex account.
             **character:** set or get which character is in use.
             **playersheets:** get all registered share links, or for a specific player
@@ -721,6 +722,8 @@ if __name__ == "__main__":
             **money\\*:** base command for income and expenses tracking
             **spell**: query a spell (from the dnd5e.wikidot.com library)
             **monster\\*:** search for monsters (from the 5e.tools library)
+            **pester:** ping a player until they acknowledge [DM]
+            **schedule:** toggle a time to pester everyone in the channel the command was run [DM]
             """
 
         await ctx.send(embeds=interactions.Embed(title="Help" + (" '"+command+"'" if command else ""), description=desc, color=interactions.Color.blurple()), ephemeral=True)
