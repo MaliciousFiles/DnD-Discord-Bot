@@ -3300,6 +3300,12 @@ if __name__ == "__main__":
         await ctx.populate([interactions.Choice(name=key, value=key) for key in MONSTER_ID_BY_NAME if key.lower().startswith(user_input.lower())][:25])
 
 
+    def start_bot():
+        try:
+            bot.start()
+        except Exception as e:
+            print(f"ERROR!!! {e}")
+
     if not IS_SERVER:
         def confirm_quit():
             if askyesno("Confirm", "Are you sure you want to quit?"):
@@ -3315,6 +3321,6 @@ if __name__ == "__main__":
         signal.signal(signal.SIGTERM, quit_app)
         signal.signal(signal.SIGINT, quit_app)
 
-        icon.run(lambda thing: bot.start())
+        icon.run(lambda thing: start_bot())
     else:
-        bot.start()
+        start_bot()
