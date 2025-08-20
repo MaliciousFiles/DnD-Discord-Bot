@@ -217,13 +217,7 @@ if __name__ == "__main__":
         os._exit(0)
 
 
-    try:
-        bot = interactions.Client(os.getenv("BOT_AUTH_TOKEN"))
-    except Exception as e:
-        print("[EXCEPTION] invalid auth token: " + str(e))
-
-        os._exit(0)
-
+    bot = interactions.Client()
 
     def get_data(guild: interactions.Guild, campaign: bool = True):
         guild_data = DATA[str(guild.id)]
@@ -260,28 +254,28 @@ if __name__ == "__main__":
                 del guild[DM_ROLE_KEY]
 
 
-    async def check_dm(ctx: interactions.CommandContext, player: interactions.Member):
+    async def check_dm(ctx: interactions.SlashContext, player: interactions.Member):
         if DM_ROLE_KEY not in get_data(ctx.guild, False):
             await ctx.send(embeds=interactions.Embed(title="DM Role Not Found",
                                                      description="Use `/dm-role` to set a DM role doing this",
-                                                     color=interactions.Color.red()), ephemeral=True)
+                                                     color=interactions.BrandColors.RED), ephemeral=True)
             return False
 
         dm_role_id = int(get_data(ctx.guild, False)[DM_ROLE_KEY])
         if dm_role_id not in player.roles:
             await ctx.send(embeds=interactions.Embed(title="Must be DM", description="You must have " + (
-                await ctx.guild.get_role(dm_role_id)).mention + " to do this", color=interactions.Color.red()),
+                await ctx.guild.fetch_role(dm_role_id)).mention + " to do this", color=interactions.BrandColors.RED),
                            ephemeral=True)
             return False
 
         return True
 
 
-    async def check_char_sheet(ctx: interactions.CommandContext, player: interactions.Member, self: bool = True):
+    async def check_char_sheet(ctx: interactions.SlashContext, player: interactions.Member, self: bool = True):
         if not str(player.id) in get_data(ctx.guild, False)[CREDENTIALS_KEY]:
             await ctx.send(embeds=interactions.Embed(title="No Character Linked",
                                                      description="Use `/account` to link your Adventurer's Codex account, and `/character` to set the character to use" if self else player.mention + " does not have an Adventurer's Codex character linked",
-                                                     color=interactions.Color.red()), ephemeral=True)
+                                                     color=interactions.BrandColors.RED), ephemeral=True)
             return False
 
         return True
@@ -295,7 +289,7 @@ if __name__ == "__main__":
         return min(max(-5 + int(score/2), -5), 10)
 
 
-    async def get_ability(ctx: interactions.CommandContext, ability: str, saving_throw: bool = False, spread_out: bool = False, user: interactions.Member = None, ephemeral: bool = True):
+    async def get_ability(ctx: interactions.SlashContext, ability: str, saving_throw: bool = False, spread_out: bool = False, user: interactions.Member = None, ephemeral: bool = True):
         ability_score = ability == "Strength" or ability == "Dexterity" or ability == "Constitution" or ability == "Intelligence" or ability == "Wisdom" or ability == "Charisma"
 
         stats = await query_AC(ctx, "{uuid}/"+("saving_throws" if saving_throw and ability_score else "ability_scores" if ability_score else "skills"), user=user, ephemeral=ephemeral)
@@ -389,24 +383,25 @@ if __name__ == "__main__":
         confirm_message = "yes, I am sure"
 
         if id not in CALLBACK_IDS: CALLBACK_IDS[id] = 0
-        modal = interactions.Modal(title="Confirm", components=[
-            interactions.TextInput(style=interactions.TextStyleType.SHORT, label=f"Type '{confirm_message}' to confirm",
+        modal = interactions.Modal(
+            interactions.InputText(style=interactions.TextStyles.SHORT, label=f"Type '{confirm_message}' to confirm",
                                    custom_id="confirm", required=True, min_length=len(confirm_message),
-                                   max_length=len(confirm_message), placeholder=confirm_message)],
+                                   max_length=len(confirm_message), placeholder=confirm_message),
+                                   title="Confirm",
                                    custom_id=f"{id}-{CALLBACK_IDS[id]}")
         CALLBACK_IDS[id] += 1
 
-        @bot.modal(modal)
+        @interactions.modal_callback(modal.custom_id)
         async def modal_response(ctx: interactions.ComponentContext, response: str):
             if response.lower() == confirm_message.lower():
                 if data == None: await callback(ctx)
                 else: await callback(ctx, data)
 
-        await ctx.popup(modal)
-        await ctx.defer(True)
+        await ctx.send_modal(modal)
+        await ctx.defer(ephemeral=True)
 
 
-    async def set_access_token(ctx: interactions.CommandContext):
+    async def set_access_token(ctx: interactions.SlashContext):
         if await check_char_sheet(ctx, ctx.author):
             creds = get_data(ctx.guild, False)[CREDENTIALS_KEY][str(ctx.author.id)]
 
@@ -450,13 +445,13 @@ if __name__ == "__main__":
         return False
 
 
-    async def query_AC(ctx: interactions.CommandContext, path: str, autocomplete: bool = False, method = requests.get, user: interactions.Member = None, ephemeral: bool = True):
+    async def query_AC(ctx: interactions.SlashContext|interactions.AutocompleteContext, path: str, autocomplete: bool = False, method = requests.get, user: interactions.Member = None, ephemeral: bool = True):
         if path and not path.endswith("/"): path += "/"
-        if not autocomplete: await ctx.defer(ephemeral)
+        if not autocomplete: await ctx.defer(ephemeral=ephemeral)
         if not user: user = ctx.author
 
         async def error():
-            if not autocomplete: await ctx.send(embeds=interactions.Embed(title="Not Registered", description="Log into Adventurer's Codex using `/account` before doing this", color=interactions.Color.red()), ephemeral=True)
+            if not autocomplete: await ctx.send(embeds=interactions.Embed(title="Not Registered", description="Log into Adventurer's Codex using `/account` before doing this", color=interactions.BrandColors.RED), ephemeral=True)
 
         if str(user.id) not in get_data(ctx.guild, False)[CREDENTIALS_KEY]:
             await error()
@@ -471,7 +466,7 @@ if __name__ == "__main__":
 
         if '{uuid}' in path:
             if str(user.id) not in chars:
-                if not autocomplete: await ctx.send(embeds=interactions.Embed(title="Not Registered", description="Set your character using `/character` before doing this!", color=interactions.Color.red()), ephemeral=True)
+                if not autocomplete: await ctx.send(embeds=interactions.Embed(title="Not Registered", description="Set your character using `/character` before doing this!", color=interactions.BrandColors.RED), ephemeral=True)
                 return
             else:
                 path = path.replace('{uuid}', chars[str(user.id)][CHAR_UUID_KEY])
@@ -498,37 +493,37 @@ if __name__ == "__main__":
         out = json.loads(response.text)
         return out['results'] if 'results' in out else out
 
-    @bot.command(
+    @interactions.slash_command(
         name="help",
         description="Help function to describe every command.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="command",
                 description="The name of the base command to further inspect.",
                 type=interactions.OptionType.STRING,
                 choices=[
-                    interactions.Choice(name="roll", value="roll"),
-                    interactions.Choice(name="init", value="init"),
-                    interactions.Choice(name="date", value="date"),
-                    interactions.Choice(name="money", value="money"),
-                    interactions.Choice(name="monster", value="monster")
+                    interactions.SlashCommandChoice(name="roll", value="roll"),
+                    interactions.SlashCommandChoice(name="init", value="init"),
+                    interactions.SlashCommandChoice(name="date", value="date"),
+                    interactions.SlashCommandChoice(name="money", value="money"),
+                    interactions.SlashCommandChoice(name="monster", value="monster")
                 ]
             ),
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="subcommand",
                 description="The name of the subcommand to further inspect.",
                 type=interactions.OptionType.STRING,
                 choices=[
-                    interactions.Choice(name="add", value="add"),
-                    interactions.Choice(name="remove", value="remove"),
-                    interactions.Choice(name="event", value="event"),
-                    interactions.Choice(name="income", value="income"),
-                    interactions.Choice(name="expense", value="expense")
+                    interactions.SlashCommandChoice(name="add", value="add"),
+                    interactions.SlashCommandChoice(name="remove", value="remove"),
+                    interactions.SlashCommandChoice(name="event", value="event"),
+                    interactions.SlashCommandChoice(name="income", value="income"),
+                    interactions.SlashCommandChoice(name="expense", value="expense")
                 ]
             )
         ]
     )
-    async def help(ctx: interactions.CommandContext, command: str = None, subcommand: str = None):
+    async def help(ctx: interactions.SlashContext, command: str = None, subcommand: str = None):
         if command == "roll":
             desc="""
             **ability:** roll a die based on an ability from your character sheet (must have sheet linked)
@@ -641,14 +636,15 @@ if __name__ == "__main__":
             **schedule:** toggle a time to pester everyone in the channel the command was run [DM]
             """
 
-        await ctx.send(embeds=interactions.Embed(title="Help" + (" '"+command+"'" if command else ""), description=desc, color=interactions.Color.blurple()), ephemeral=True)
+
+        await ctx.send(embeds=interactions.Embed(title="Help" + (" '"+command+"'" if command else ""), description=desc, color=interactions.BrandColors.BLURPLE), ephemeral=True)
 
 
-    @bot.command(
+    @interactions.slash_command(
         name="dm-help",
         description="Get a help message for the DM."
     )
-    async def dm_help(ctx: interactions.CommandContext):
+    async def dm_help(ctx: interactions.SlashContext):
         if not await check_dm(ctx, ctx.author): return
 
         desc = """
@@ -662,19 +658,19 @@ if __name__ == "__main__":
         **roll:** the roll command not only acts as a dice roller, but also allows you to secretly make a roll for another player [say, perception ;)]
         """
 
-        await ctx.send(embeds=interactions.Embed(title="DM Help", description=desc, color=interactions.Color.blurple()), ephemeral=True)
+        await ctx.send(embeds=interactions.Embed(title="DM Help", description=desc, color=interactions.BrandColors.BLURPLE), ephemeral=True)
 
-    @bot.command(
+    @interactions.slash_command(
         name="account",
         description="Submit your Adventurer's Codex credentials.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="username",
                 description="Your Adventurer's Codex username",
                 type=interactions.OptionType.STRING,
                 required=True
             ),
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="password",
                 description="Your Adventurer's Codex password",
                 type=interactions.OptionType.STRING,
@@ -682,7 +678,7 @@ if __name__ == "__main__":
             )
         ]
     )
-    async def account_command(ctx: interactions.CommandContext, username: str, password: str):
+    async def account_command(ctx: interactions.SlashContext, username: str, password: str):
         creds = get_data(ctx.guild, False)[CREDENTIALS_KEY]
         creds[str(ctx.author.id)] = {USERNAME_KEY: AES.encrypt(username), PASSWORD_KEY: AES.encrypt(password)}
 
@@ -693,26 +689,26 @@ if __name__ == "__main__":
             del chars[str(ctx.author.id)]
 
 
-        await ctx.defer(True)
+        await ctx.defer(ephemeral=True)
 
         if not await set_access_token(ctx):
-            await ctx.send(embeds=interactions.Embed(title="Error", description="Invalid username or password, please try again", color=interactions.Color.red()), ephemeral=True)
+            await ctx.send(embeds=interactions.Embed(title="Error", description="Invalid username or password, please try again", color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         save_data()
 
         await ctx.send(
             embeds=interactions.Embed(title="Success", description="Adventurer's Codex credentials saved. Make sure you use `/character` to set which character to user!",
-                                      color=interactions.Color.green()), ephemeral=True)
+                                      color=interactions.BrandColors.GREEN), ephemeral=True)
 
 
 
 
-    @bot.command(
+    @interactions.slash_command(
         name="character",
         description="Set or get which character is in use",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="name",
                 description="The name of the character to set",
                 type=interactions.OptionType.STRING,
@@ -720,7 +716,7 @@ if __name__ == "__main__":
             )
         ]
     )
-    async def character_command(ctx: interactions.CommandContext, name: str = None):
+    async def character_command(ctx: interactions.SlashContext, name: str = None):
         response = await query_AC(ctx, '')
 
         if not response: return
@@ -732,29 +728,30 @@ if __name__ == "__main__":
 
             desc = f"Your active character is "+(("**"+{value: key for key,value in ac_chars.items()}[chars[str(ctx.author.id)][CHAR_UUID_KEY]]+"**") if str(ctx.author.id) in chars else "not set")
 
-            await ctx.send(embeds=interactions.Embed(title="Character", description=desc, color=interactions.Color.blurple()), ephemeral=True)
+            await ctx.send(embeds=interactions.Embed(title="Character", description=desc, color=interactions.BrandColors.BLURPLE), ephemeral=True)
             return
 
         if name not in ac_chars:
-            await ctx.send(embeds=interactions.Embed(title='Not Found', description='Could not find that character', color=interactions.Color.red()), ephemeral=True)
+            await ctx.send(embeds=interactions.Embed(title='Not Found', description='Could not find that character', color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         chars[str(ctx.author.id)] = {CHAR_UUID_KEY: ac_chars[name]}
         save_data()
-        await ctx.send(embeds=interactions.Embed(title='Character Set', description='Successfully set the character in use', color=interactions.Color.green()), ephemeral=True)
+        await ctx.send(embeds=interactions.Embed(title='Character Set', description='Successfully set the character in use', color=interactions.BrandColors.GREEN), ephemeral=True)
 
     @character_command.autocomplete("name")
-    async def character_name_autocomplete(ctx: interactions.CommandContext, user_input: str = ""):
+    async def character_name_autocomplete(ctx: interactions.AutocompleteContext, user_input: str = ""):
         response = await query_AC(ctx, '', True)
 
         if not response:
-            await ctx.populate([])
+
+            await ctx.send([])
             return
 
-        await ctx.populate([interactions.Choice(name=char['name'], value=char['name']) for char in response if char['type']['name'] == 'character' and char['name'].lower().startswith(user_input.lower())][:25])
+        await ctx.send([interactions.SlashCommandChoice(name=char['name'], value=char['name']) for char in response if char['type']['name'] == 'character' and char['name'].lower().startswith(user_input.lower())][:25])
 
 
-    async def get_share_link(ctx: interactions.CommandContext, user: str):
+    async def get_share_link(ctx: interactions.SlashContext, user: str):
         chars = get_data(ctx.guild)[CHARACTERS_KEY]
 
         if user not in chars: return None
@@ -776,68 +773,68 @@ if __name__ == "__main__":
         return query['link']
 
 
-    async def get_character_name(ctx: interactions.CommandContext, user: interactions.Member):
+    async def get_character_name(ctx: interactions.SlashContext, user: interactions.Member):
         ac_chars = {ch['uuid']: ch['name'] for ch in await query_AC(ctx, '', user=user) if ch['type']['name'] == 'character'}
 
         return ac_chars[get_data(ctx.guild)[CHARACTERS_KEY][str(user.id)][CHAR_UUID_KEY]]
 
-    @bot.command(
+    @interactions.slash_command(
         name="playersheets",
         description="Get all or specific character sheets",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="user",
                 description="The user to get the sheet for.",
                 type=interactions.OptionType.USER
             ),
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="all",
                 description="List all character sheets.",
                 type=interactions.OptionType.BOOLEAN
             )
         ]
     )
-    async def playersheets_command(ctx: interactions.CommandContext, user: interactions.User = None, all: bool = False):
+    async def playersheets_command(ctx: interactions.SlashContext, user: interactions.User = None, all: bool = False):
         if (all or user) and not await check_dm(ctx, ctx.author): return
-        await ctx.defer(True)
+        await ctx.defer(ephemeral=True)
 
         chars = get_data(ctx.guild)[CHARACTERS_KEY]
         desc = ""
 
         if all:
             # if str(ctx.guild.id) == '815693946655211530' and get_data(ctx.guild)[CURRENT_CAMPAIGN_KEY] == "Storm King's Thunder":
-            await ctx.send(embeds=interactions.Embed(title="Feature Not Available", description="The `all` parameter is currently not functioning properly specifically for this campaign. I haven't had the time to figure out why yet, so use `/playersheet [user]` for now", color=interactions.Color.red()))
+            await ctx.send(embeds=interactions.Embed(title="Feature Not Available", description="The `all` parameter is currently not functioning properly specifically for this campaign. I haven't had the time to figure out why yet, so use `/playersheet [user]` for now", color=interactions.BrandColors.RED))
             return
 
             for user in chars:
-                desc += f"<@{user}> (**{await get_character_name(ctx, await ctx.guild.get_member(user))}**): {await get_share_link(ctx, user)}\n"
+                desc += f"<@{user}> (**{await get_character_name(ctx, await ctx.guild.fetch_member(user))}**): {await get_share_link(ctx, user)}\n"
         else:
             if not user: user = ctx.author
 
-            link = await get_share_link(ctx, user.id)
+            link = await get_share_link(ctx, user.username)
             if not link:
-                await ctx.send(embeds=interactions.Embed(title="Not Linked", description="That user doesn't have a character sheet linked", color=interactions.Color.blurple()), ephemeral=True)
+                await ctx.send(embeds=interactions.Embed(title="Not Linked", description="That user doesn't have a character sheet linked", color=interactions.BrandColors.BLURPLE), ephemeral=True)
                 return
 
             desc = f"{user.mention} (**{await get_character_name(ctx, user)}**): {link}\n"
 
-        await ctx.send(embeds=interactions.Embed(title="Share Links", description=desc[:-1], color=interactions.Color.blurple()), ephemeral=True)
+        await ctx.send(embeds=interactions.Embed(title="Share Links", description=desc[:-1], color=interactions.BrandColors.BLURPLE), ephemeral=True)
 
 
     pestering = []
     ACKNOWLEDGE_PESTER_BUTTON = interactions.Button(style=interactions.ButtonStyle.SUCCESS, label="Acknowledge", custom_id="acknowledge_pestering")
 
-    @bot.component(ACKNOWLEDGE_PESTER_BUTTON)
+    @interactions.component_callback(ACKNOWLEDGE_PESTER_BUTTON.custom_id)
     async def acknowledge_pestering_button(ctx: interactions.ComponentContext):
-        await ctx.edit(embeds=interactions.Embed(title="Pestering Acknowledged", description="Acknowledged! Go join the others", color=interactions.Color.green()), components=[])
+        await ctx.edit(embeds=interactions.Embed(title="Pestering Acknowledged", description="Acknowledged! Go join the others", color=interactions.BrandColors.GREEN), components=[])
         pestering.remove(ctx.user.id)
 
 
-    @bot.command(
+    @interactions.slash_command(
         name="pester",
         description="Pester someone until they join.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="user",
                 description="The user to pester",
                 type=interactions.OptionType.USER,
@@ -845,36 +842,36 @@ if __name__ == "__main__":
             )
         ]
     )
-    async def pester(ctx: interactions.CommandContext, user: interactions.Member):
+    async def pester(ctx: interactions.SlashContext, user: interactions.Member):
         if not await check_dm(ctx, ctx.author): return
 
         if user.id in pestering:
-            await ctx.send(embeds=interactions.Embed(title="Already Pestering", description=f"Already pestering {user.mention}", color=interactions.Color.red()), ephemeral=True)
+            await ctx.send(embeds=interactions.Embed(title="Already Pestering", description=f"Already pestering {user.mention}", color=interactions.BrandColors.RED), ephemeral=True)
             return
 
-        msg = await ctx.send(embeds=interactions.Embed(title="Pestering", description=f"Pestering {user.mention} until they acknowledge", color=interactions.Color.green()), ephemeral=True)
+        msg = await ctx.send(embeds=interactions.Embed(title="Pestering", description=f"Pestering {user.mention} until they acknowledge", color=interactions.BrandColors.GREEN), ephemeral=True)
         pestering.append(user.id)
 
-        await user.send(embeds=interactions.Embed(title="Join D&D", description="The others are waiting, go join!", color=interactions.Color.yellow()), components=ACKNOWLEDGE_PESTER_BUTTON)
+        await user.send(embeds=interactions.Embed(title="Join D&D", description="The others are waiting, go join!", color=interactions.BrandColors.YELLOW), components=ACKNOWLEDGE_PESTER_BUTTON)
 
         while user.id in pestering:
             await (await user.send(user.mention)).delete()
             await asyncio.sleep(2)
 
 
-    @bot.command(
+    @interactions.slash_command(
         name="campaign",
         description="Base command for campaigns."
     )
-    async def campaign_command(ctx: interactions.CommandContext):
+    async def campaign_command(ctx: interactions.SlashContext):
         pass
 
 
     @campaign_command.subcommand(
-        name="add",
-        description="Create a new campaign.",
+        sub_cmd_name="add",
+        sub_cmd_description="Create a new campaign.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="name",
                 description="The name of the campaign",
                 type=interactions.OptionType.STRING,
@@ -882,17 +879,17 @@ if __name__ == "__main__":
             )
         ]
     )
-    async def campaign_add(ctx: interactions.CommandContext, name: str):
+    async def campaign_add(ctx: interactions.SlashContext, name: str):
         if not await check_dm(ctx, ctx.author): return
 
         if name in get_data(ctx.guild, False):
-            await ctx.send(embeds=interactions.Embed(title="Already Exists", description="A campaign by that name already exists", color=interactions.Color.red()), ephemeral=True)
+            await ctx.send(embeds=interactions.Embed(title="Already Exists", description="A campaign by that name already exists", color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         get_data(ctx.guild, False)[CAMPAIGNS_KEY][name] = {CHARACTERS_KEY: {}}
         save_data()
 
-        await ctx.send(embeds=interactions.Embed(title="Campaign Added", description=f"New campaign successfully added. `/campaign set {name}` to set it as the active campaign", color=interactions.Color.green()), ephemeral=True)
+        await ctx.send(embeds=interactions.Embed(title="Campaign Added", description=f"New campaign successfully added. `/campaign set {name}` to set it as the active campaign", color=interactions.BrandColors.GREEN), ephemeral=True)
 
 
     async def remove_campaign_callback(ctx: interactions.ComponentContext, name: str):
@@ -909,14 +906,14 @@ if __name__ == "__main__":
 
         await ctx.send(embeds=interactions.Embed(title="Campaign Removed",
                                                  description=f"**{name}** successfully deleted",
-                                                 color=interactions.Color.green()), ephemeral=True)
+                                                 color=interactions.BrandColors.GREEN), ephemeral=True)
 
 
     @campaign_command.subcommand(
-        name="remove",
-        description="Remove a campaign. CANNOT BE UNDONE",
+        sub_cmd_name="remove",
+        sub_cmd_description="Remove a campaign. CANNOT BE UNDONE",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="name",
                 description="The name of the campaign. CANNOT BE UNDONE",
                 type=interactions.OptionType.STRING,
@@ -925,23 +922,23 @@ if __name__ == "__main__":
             )
         ]
     )
-    async def campaign_remove(ctx: interactions.CommandContext, name: str):
+    async def campaign_remove(ctx: interactions.SlashContext, name: str):
         if not await check_dm(ctx, ctx.author): return
 
         if name not in get_data(ctx.guild, False)[CAMPAIGNS_KEY]:
             await ctx.send(
                 embeds=interactions.Embed(title="Doesn't Exist", description="Cannot find a campaign by that name",
-                                          color=interactions.Color.red()), ephemeral=True)
+                                          color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         await confirm_action(ctx, f'campaign_remove', remove_campaign_callback, name)
 
 
     @campaign_command.subcommand(
-        name="set",
-        description="Set the current campaign",
+        sub_cmd_name="set",
+        sub_cmd_description="Set the current campaign",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="name",
                 description="The name of the campaign",
                 type=interactions.OptionType.STRING,
@@ -950,13 +947,13 @@ if __name__ == "__main__":
             )
         ]
     )
-    async def campaign_set(ctx: interactions.CommandContext, name: str):
+    async def campaign_set(ctx: interactions.SlashContext, name: str):
         if not await check_dm(ctx, ctx.author): return
 
         if name not in get_data(ctx.guild, False)[CAMPAIGNS_KEY]:
             await ctx.send(
                 embeds=interactions.Embed(title="Doesn't Exist", description="Cannot find a campaign by that name",
-                                          color=interactions.Color.red()), ephemeral=True)
+                                          color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         get_data(ctx.guild, False)[CURRENT_CAMPAIGN_KEY] = name
@@ -964,30 +961,30 @@ if __name__ == "__main__":
 
         await ctx.send(embeds=interactions.Embed(title="Campaign Set",
                                                  description=f"Successfully set current campaign to **{name}**",
-                                                 color=interactions.Color.green()), ephemeral=True)
+                                                 color=interactions.BrandColors.GREEN), ephemeral=True)
 
 
     @campaign_command.subcommand(
-        name="list",
-        description="List every campaign, with the current one bolded"
+        sub_cmd_name="list",
+        sub_cmd_description="List every campaign, with the current one bolded"
     )
-    async def campaign_list(ctx: interactions.CommandContext):
+    async def campaign_list(ctx: interactions.SlashContext):
         await ctx.send(embeds=interactions.Embed(title="Campaigns",
                                                  description="\n".join([(f"**{name}**" if name == get_data(ctx.guild, False)[CURRENT_CAMPAIGN_KEY] else name) for name in get_data(ctx.guild, False)[CAMPAIGNS_KEY].keys()]),
-                                                 color=interactions.Color.blurple()), ephemeral=True)
+                                                 color=interactions.BrandColors.BLURPLE), ephemeral=True)
 
 
     @campaign_command.autocomplete("name")
-    async def autocomplete_campaign_name(ctx: interactions.CommandContext, user_input: str = ""):
-        await ctx.populate([interactions.Choice(name=name, value=name) for name in get_data(ctx.guild, False)[CAMPAIGNS_KEY].keys() if name.lower().startswith(user_input.lower())][:25])
+    async def autocomplete_campaign_name(ctx: interactions.AutocompleteContext, user_input: str = ""):
+        await ctx.send([interactions.SlashCommandChoice(name=name, value=name) for name in get_data(ctx.guild, False)[CAMPAIGNS_KEY].keys() if name.lower().startswith(user_input.lower())][:25])
 
 
-    @bot.command(
+    @interactions.slash_command(
         name="dm-role",
         description="Set the role that denotes the DM.",
         default_member_permissions=interactions.Permissions.MANAGE_ROLES,
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="role",
                 description="DM role.",
                 type=interactions.OptionType.ROLE,
@@ -995,118 +992,121 @@ if __name__ == "__main__":
             )
         ]
     )
-    async def dm_role(ctx: interactions.CommandContext, role: interactions.Role):
+    async def dm_role(ctx: interactions.SlashContext, role: interactions.Role):
         get_data(ctx.guild, False)[DM_ROLE_KEY] = str(role.id)
         save_data()
         await ctx.send(embeds=interactions.Embed(title="Role Set", description="DM role set to " + role.mention,
-                                                 color=interactions.Color.green()), ephemeral=True)
+                                                 color=interactions.BrandColors.GREEN), ephemeral=True)
 
 
-    @bot.command(
-        name="roll",
-        description="Roll a die based on your ability score.",
+    @interactions.slash_command(name="roll", description="Roll a die based on your ability score.")
+    async def roll(ctx: interactions.SlashContext):
+        pass
+
+    @roll.subcommand(
+        sub_cmd_name="ability",
+        sub_cmd_description="Roll a d20 based on your ability score.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="ability",
-                description="Roll a d20 based on your ability score.",
-                type=interactions.OptionType.SUB_COMMAND,
-                options=[
-                    interactions.Option(
-                        name="ability",
-                        description="The ability to use.",
-                        type=interactions.OptionType.STRING,
-                        choices=[
-                            interactions.Choice(name="Strength", value="strength"),
-                            interactions.Choice(name="Dexterity", value="dexterity"),
-                            interactions.Choice(name="Constitution", value="constitution"),
-                            interactions.Choice(name="Intelligence", value="intelligence"),
-                            interactions.Choice(name="Wisdom", value="wisdom"),
-                            interactions.Choice(name="Charisma", value="charisma"),
-                            interactions.Choice(name="Acrobatics", value="acrobatics"),
-                            interactions.Choice(name="Animal Handling", value="animal_handling"),
-                            interactions.Choice(name="Arcana", value="arcana"),
-                            interactions.Choice(name="Athletics", value="athletics"),
-                            interactions.Choice(name="Deception", value="deception"),
-                            interactions.Choice(name="History", value="history"),
-                            interactions.Choice(name="Insight", value="insight"),
-                            interactions.Choice(name="Intimidation", value="intimidation"),
-                            interactions.Choice(name="Investigation", value="investigation"),
-                            interactions.Choice(name="Medicine", value="medicine"),
-                            interactions.Choice(name="Nature", value="nature"),
-                            interactions.Choice(name="Perception", value="perception"),
-                            interactions.Choice(name="Performance", value="performance"),
-                            interactions.Choice(name="Persuasion", value="persuasion"),
-                            interactions.Choice(name="Religion", value="religion"),
-                            interactions.Choice(name="Sleight of Hand", value="sleight_of_hand"),
-                            interactions.Choice(name="Stealth", value="stealth"),
-                            interactions.Choice(name="Survival", value="survival")
-                        ],
-                        required=True
-                    ),
-                    interactions.Option(
-                        name="saving_throw",
-                        description="Whether to roll as a saving throw or not. Only has an effect for the core attributes.",
-                        type=interactions.OptionType.BOOLEAN
-                    ),
-                    interactions.Option(
-                        name="player",
-                        description="Player for whom to role the dice. Must be DM to use.",
-                        type=interactions.OptionType.USER,
-                    )
-                ]
+                description="The ability to use.",
+                type=interactions.OptionType.STRING,
+                choices=[
+                    interactions.SlashCommandChoice(name="Strength", value="strength"),
+                    interactions.SlashCommandChoice(name="Dexterity", value="dexterity"),
+                    interactions.SlashCommandChoice(name="Constitution", value="constitution"),
+                    interactions.SlashCommandChoice(name="Intelligence", value="intelligence"),
+                    interactions.SlashCommandChoice(name="Wisdom", value="wisdom"),
+                    interactions.SlashCommandChoice(name="Charisma", value="charisma"),
+                    interactions.SlashCommandChoice(name="Acrobatics", value="acrobatics"),
+                    interactions.SlashCommandChoice(name="Animal Handling", value="animal_handling"),
+                    interactions.SlashCommandChoice(name="Arcana", value="arcana"),
+                    interactions.SlashCommandChoice(name="Athletics", value="athletics"),
+                    interactions.SlashCommandChoice(name="Deception", value="deception"),
+                    interactions.SlashCommandChoice(name="History", value="history"),
+                    interactions.SlashCommandChoice(name="Insight", value="insight"),
+                    interactions.SlashCommandChoice(name="Intimidation", value="intimidation"),
+                    interactions.SlashCommandChoice(name="Investigation", value="investigation"),
+                    interactions.SlashCommandChoice(name="Medicine", value="medicine"),
+                    interactions.SlashCommandChoice(name="Nature", value="nature"),
+                    interactions.SlashCommandChoice(name="Perception", value="perception"),
+                    interactions.SlashCommandChoice(name="Performance", value="performance"),
+                    interactions.SlashCommandChoice(name="Persuasion", value="persuasion"),
+                    interactions.SlashCommandChoice(name="Religion", value="religion"),
+                    interactions.SlashCommandChoice(name="Sleight of Hand", value="sleight_of_hand"),
+                    interactions.SlashCommandChoice(name="Stealth", value="stealth"),
+                    interactions.SlashCommandChoice(name="Survival", value="survival")
+                ],
+                required=True
             ),
-            interactions.Option(
-                name="input",
-                description="Roll a dice based on input using the ZSDR dice roller.",
-                type=interactions.OptionType.SUB_COMMAND,
-                options=[
-                    interactions.Option(
-                        name="dice",
-                        description="The dice to roll.",
-                        type=interactions.OptionType.STRING,
-                        required=True
-                    )
-                ]
+            interactions.SlashCommandOption(
+                name="saving_throw",
+                description="Whether to roll as a saving throw or not. Only has an effect for the core attributes.",
+                type=interactions.OptionType.BOOLEAN
             ),
-            interactions.Option(
-                name="help",
-                description="Get help on the ZSDR dice roller.",
-                type=interactions.OptionType.SUB_COMMAND
+            interactions.SlashCommandOption(
+                name="player",
+                description="Player for whom to role the dice. Must be DM to use.",
+                type=interactions.OptionType.USER,
             )
         ]
     )
-    async def roll(ctx: interactions.CommandContext, sub_command: str, ability: str = "", saving_throw: bool = False,
-                   player: interactions.Member = None, dice: str = ""):
-        title = dice
-        if sub_command == "help":
-            await ctx.send(embeds=interactions.Embed(title="ZSDR Help", description=ZSDR.HELP, color=interactions.Color.blurple()), ephemeral=True)
-            return
+    async def roll_ability(ctx: interactions.SlashContext, ability: str = "", saving_throw: bool = False,
+                   player: interactions.Member = None):
+        if player and not await check_dm(ctx, ctx.author): return
 
-        if sub_command == "ability":
-            if player and not await check_dm(ctx, ctx.author): return
+        user = player if player else ctx.author
 
-            user = player if player else ctx.author
+        if not (await check_char_sheet(ctx, user, not player)): return
 
-            if not (await check_char_sheet(ctx, user, not player)): return
+        title = ability.replace("_", " ").title().replace("Of", "of")
 
-            title = ability.replace("_", " ").title().replace("Of", "of")
+        ability = await get_ability(ctx, title, saving_throw, True, user=user, ephemeral=player is not None)
+        if not ability: return
 
-            ability = await get_ability(ctx, title, saving_throw, True, user=user, ephemeral=player is not None)
-            if not ability: return
+        dice = "1d20" + ability[0]
 
-            dice = "1d20" + ability[0]
-
-            if ability[2]: title += " Saving Throw"
-            if ability[1] > 0 and type(ability[1]) == int: title += " "+("✓"*ability[1])
+        if ability[2]: title += " Saving Throw"
+        if ability[1] > 0 and type(ability[1]) == int: title += " "+("✓"*ability[1])
 
         try:
             await ctx.send(
-                embeds=interactions.Embed(title=title, description=ZSDR.roll_dice(dice)[0]+"\n\n*Courtesy of the ZSDR dice roller.*", color=interactions.Color.blurple()),
+                embeds=interactions.Embed(title=title, description=ZSDR.roll_dice(dice)[0]+"\n\n*Courtesy of the ZSDR dice roller.*", color=interactions.BrandColors.BLURPLE),
                 ephemeral=player is not None)
         except RuntimeError:
             await ctx.send(embeds=interactions.Embed(title="Error",
                                                      description="Dice error, make sure you follow the formatting rules. `/roll help` for more info",  # TODO: implement /roll help
-                                                     color=interactions.Color.red()), ephemeral=True)
+                                                     color=interactions.BrandColors.RED), ephemeral=True)
+
+    @roll.subcommand(
+        sub_cmd_name="input",
+        sub_cmd_description="Roll a dice based on input using the ZSDR dice roller.",
+        options=[
+            interactions.SlashCommandOption(
+                name="dice",
+                description="The dice to roll.",
+                type=interactions.OptionType.STRING,
+                required=True
+            )
+        ]
+    )
+    async def roll_input(ctx: interactions.SlashContext, dice: str = ""):
+        try:
+            await ctx.send(
+                embeds=interactions.Embed(title=dice, description=ZSDR.roll_dice(dice)[0]+"\n\n*Courtesy of the ZSDR dice roller.*", color=interactions.BrandColors.BLURPLE))
+        except RuntimeError:
+            await ctx.send(embeds=interactions.Embed(title="Error",
+                                                     description="Dice error, make sure you follow the formatting rules. `/roll help` for more info",  # TODO: implement /roll help
+                                                     color=interactions.BrandColors.RED), ephemeral=True)
+    
+    @roll.subcommand(
+        sub_cmd_name="help",
+        sub_cmd_description="Get help on the ZSDR dice roller.",
+    )
+    async def roll_help(ctx: interactions.SlashContext):
+        await ctx.send(
+            embeds=interactions.Embed(title="ZSDR Help", description=ZSDR.HELP, color=interactions.BrandColors.BLURPLE),
+            ephemeral=True)
 
     def get_from_table(table: dict, roll: int):
         for key in list(table.keys())[::-1]:
@@ -1115,115 +1115,132 @@ if __name__ == "__main__":
             if roll >= int(key.split("-")[0]):
                 return table[key]
 
-    @bot.command(
+    @interactions.slash_command(
         name="table",
-        description="Roll on a table.",
+        description="Roll on a table."
+    )
+    async def table_command(ctx: interactions.SlashContext):
+        pass
+
+
+    @table_command.subcommand(
+        sub_cmd_name="treasure-individual",
+        sub_cmd_description="Roll on the Individual Treasure table.",
         options=[
-            interactions.Option(
-                name="treasure-individual",
-                description="Roll on the Individual Treasure table.",
-                type=interactions.OptionType.SUB_COMMAND,
-                options=[
-                    interactions.Option(
-                        name="cr",
-                        type=interactions.OptionType.STRING,
-                        description="The CR for which to roll.",
-                        choices=[
-                            interactions.Choice(name="0-4", value="0-4"),
-                            interactions.Choice(name="5-10", value="5-10"),
-                            interactions.Choice(name="11-16", value="11-16"),
-                            interactions.Choice(name="17+", value="17+")
-                        ],
-                        required=True
-                    )
-                ]
-            ),
-            interactions.Option(
-                name="treasure-hoard",
-                description="Roll on the Hoard Treasure table.",
-                type=interactions.OptionType.SUB_COMMAND,
-                options=[
-                    interactions.Option(
-                        name="cr",
-                        type=interactions.OptionType.STRING,
-                        description="The CR for which to roll.",
-                        choices=[
-                            interactions.Choice(name="0-4", value="0-4"),
-                            interactions.Choice(name="5-10", value="5-10"),
-                            interactions.Choice(name="11-16", value="11-16"),
-                            interactions.Choice(name="17+", value="17+")
-                        ],
-                        required=True
-                    )
-                ]
-            ),
-            interactions.Option(
-                name="gems",
-                description="Roll on the Gems table.",
-                type=interactions.OptionType.SUB_COMMAND,
-                options=[
-                    interactions.Option(
-                        name="price",
-                        type=interactions.OptionType.STRING,
-                        description="The price of the gem.",
-                        choices=[
-                            interactions.Choice(name="10", value="10"),
-                            interactions.Choice(name="50", value="50"),
-                            interactions.Choice(name="500", value="500"),
-                            interactions.Choice(name="1,000", value="1000"),
-                            interactions.Choice(name="5,000", value="5000")
-                        ],
-                        required=True
-                    )
-                ]
-            ),
-            interactions.Option(
-                name="art",
-                description="Roll on the Art table.",
-                type=interactions.OptionType.SUB_COMMAND,
-                options=[
-                    interactions.Option(
-                        name="price",
-                        type=interactions.OptionType.STRING,
-                        description="The price of the gem.",
-                        choices=[
-                            interactions.Choice(name="25", value="25"),
-                            interactions.Choice(name="250", value="250"),
-                            interactions.Choice(name="750", value="750"),
-                            interactions.Choice(name="2,500", value="2500"),
-                            interactions.Choice(name="7,500", value="7500")
-                        ],
-                        required=True
-                    )
-                ]
-            ),
-            interactions.Option(
-                name="magic",
-                description="Roll on the Magic Items table.",
-                type=interactions.OptionType.SUB_COMMAND,
-                options=[
-                    interactions.Option(
-                        name="table",
-                        type=interactions.OptionType.STRING,
-                        description="Which table to roll on.",
-                        choices=[
-                            interactions.Choice(name="A", value="A"),
-                            interactions.Choice(name="B", value="B"),
-                            interactions.Choice(name="C", value="C"),
-                            interactions.Choice(name="D", value="D"),
-                            interactions.Choice(name="E", value="E"),
-                            interactions.Choice(name="F", value="F"),
-                            interactions.Choice(name="G", value="G"),
-                            interactions.Choice(name="H", value="H"),
-                            interactions.Choice(name="I", value="I")
-                        ],
-                        required=True
-                    )
-                ]
-            ),
+            interactions.SlashCommandOption(
+                name="cr",
+                type=interactions.OptionType.STRING,
+                description="The CR for which to roll.",
+                choices=[
+                    interactions.SlashCommandChoice(name="0-4", value="0-4"),
+                    interactions.SlashCommandChoice(name="5-10", value="5-10"),
+                    interactions.SlashCommandChoice(name="11-16", value="11-16"),
+                    interactions.SlashCommandChoice(name="17+", value="17+")
+                ],
+                required=True
+            )
         ]
     )
-    async def table_command(ctx: interactions.CommandContext, sub_command: str, cr: str = None, price: str = None, table: str = None):
+    async def table_treasure_individual(ctx: interactions.SlashContext, cr: str):
+        await table_command(ctx, "treasure-individual", cr=cr)
+
+
+    @table_command.subcommand(
+        sub_cmd_name="treasure-hoard",
+        sub_cmd_description="Roll on the Hoard Treasure table.",
+        options=[
+            interactions.SlashCommandOption(
+                name="cr",
+                type=interactions.OptionType.STRING,
+                description="The CR for which to roll.",
+                choices=[
+                    interactions.SlashCommandChoice(name="0-4", value="0-4"),
+                    interactions.SlashCommandChoice(name="5-10", value="5-10"),
+                    interactions.SlashCommandChoice(name="11-16", value="11-16"),
+                    interactions.SlashCommandChoice(name="17+", value="17+")
+                ],
+                required=True
+            )
+        ]
+    )
+    async def table_treasure_hoard(ctx: interactions.SlashContext, cr: str):
+        await table_command(ctx, "treasure-hoard", cr=cr)
+
+
+    @table_command.subcommand(
+        sub_cmd_name="gems",
+        sub_cmd_description="Roll on the Gems table.",
+        options=[
+            interactions.SlashCommandOption(
+                name="price",
+                type=interactions.OptionType.STRING,
+                description="The price of the gem.",
+                choices=[
+                    interactions.SlashCommandChoice(name="10", value="10"),
+                    interactions.SlashCommandChoice(name="50", value="50"),
+                    interactions.SlashCommandChoice(name="500", value="500"),
+                    interactions.SlashCommandChoice(name="1,000", value="1000"),
+                    interactions.SlashCommandChoice(name="5,000", value="5000")
+                ],
+                required=True
+            )
+        ]
+    )
+    async def table_gems(ctx: interactions.SlashContext, price: str):
+        await table_command(ctx, "art", price=price)
+
+
+    @table_command.subcommand(
+        sub_cmd_name="art",
+        sub_cmd_description="Roll on the Art table.",
+        options=[
+            interactions.SlashCommandOption(
+                name="price",
+                type=interactions.OptionType.STRING,
+                description="The price of the gem.",
+                choices=[
+                    interactions.SlashCommandChoice(name="25", value="25"),
+                    interactions.SlashCommandChoice(name="250", value="250"),
+                    interactions.SlashCommandChoice(name="750", value="750"),
+                    interactions.SlashCommandChoice(name="2,500", value="2500"),
+                    interactions.SlashCommandChoice(name="7,500", value="7500")
+                ],
+                required=True
+            )
+        ]
+    )
+    async def table_art(ctx: interactions.SlashContext, price: str):
+        await table_command(ctx, "art", price=price)
+
+
+    @table_command.subcommand(
+        sub_cmd_name="magic",
+        sub_cmd_description="Roll on the Magic Items table.",
+        options=[
+            interactions.SlashCommandOption(
+                name="table",
+                type=interactions.OptionType.STRING,
+                description="Which table to roll on.",
+                choices=[
+                    interactions.SlashCommandChoice(name="A", value="A"),
+                    interactions.SlashCommandChoice(name="B", value="B"),
+                    interactions.SlashCommandChoice(name="C", value="C"),
+                    interactions.SlashCommandChoice(name="D", value="D"),
+                    interactions.SlashCommandChoice(name="E", value="E"),
+                    interactions.SlashCommandChoice(name="F", value="F"),
+                    interactions.SlashCommandChoice(name="G", value="G"),
+                    interactions.SlashCommandChoice(name="H", value="H"),
+                    interactions.SlashCommandChoice(name="I", value="I")
+                ],
+                required=True
+            )
+        ]
+    )
+    async def table_magic(ctx: interactions.SlashContext, table: str):
+        await table_command(ctx, "magic", table=table)
+
+
+    async def table_command(ctx: interactions.SlashContext, sub_command: str, cr: str = None, price: str = None, table: str = None):
         tabl = TABLES
         for t in sub_command.split("-"):
             tabl = tabl[t]
@@ -1303,10 +1320,10 @@ if __name__ == "__main__":
         elif sub_command == "art" or sub_command == "gems":
             desc = f"{roll}: {value}\n"
 
-        await ctx.send(embeds=interactions.Embed(title=title, description=desc[:-1], color=interactions.Color.blurple()), components=interactions.Button(label="Get Plaintext", style=interactions.ButtonStyle.SUCCESS, custom_id="copy_table_roll"), ephemeral=True)
+        await ctx.send(embeds=interactions.Embed(title=title, description=desc[:-1], color=interactions.BrandColors.BLURPLE), components=interactions.Button(label="Get Plaintext", style=interactions.ButtonStyle.SUCCESS, custom_id="copy_table_roll"), ephemeral=True)
 
 
-    @bot.component("copy_table_roll")
+    @interactions.component_callback("copy_table_roll")
     async def copy_table_roll_button(ctx: interactions.ComponentContext):
         desc = ""
         text = ctx.message.embeds[0].description
@@ -1325,66 +1342,66 @@ if __name__ == "__main__":
         await ctx.send(desc, ephemeral=True)
 
 
-    @bot.command(
+    @interactions.slash_command(
         name="mhp",
         description="Monster health tracker base command."
     )
-    async def monster_hp(ctx: interactions.CommandContext):
+    async def monster_hp(ctx: interactions.SlashContext):
         if MONSTER_HP_KEY not in get_data(ctx.guild):
             get_data(ctx.guild)[MONSTER_HP_KEY] = {MHP_HEALTH_KEY: {}, MHP_EMBEDS_KEY: {}}
         if MHP_HEALTH_KEY not in get_data(ctx.guild)[MONSTER_HP_KEY]:
-            get_data(Ctx.guild)[MONSTER_HP_KEY][MHP_HEALTH_KEY] = {}
+            get_data(ctx.guild)[MONSTER_HP_KEY][MHP_HEALTH_KEY] = {}
         if MHP_EMBEDS_KEY not in get_data(ctx.guild)[MONSTER_HP_KEY]:
-            get_data(Ctx.guild)[MONSTER_HP_KEY][MHP_EMBEDS_KEY] = {}
+            get_data(ctx.guild)[MONSTER_HP_KEY][MHP_EMBEDS_KEY] = {}
 
 
     @monster_hp.subcommand(
-        name="add",
-        description="Add new monster to health tracker.",
+        sub_cmd_name="add",
+        sub_cmd_description="Add new monster to health tracker.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="monster",
                 description="Name of monster",
                 type=interactions.OptionType.STRING,
                 autocomplete=True,
                 required=True
             ),
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="hp",
                 description="The HP of the monster, if provided",
                 type=interactions.OptionType.INTEGER
             )
         ]
     )
-    async def mhp_add(ctx: interactions.CommandContext, monster: str, hp: int = None):
+    async def mhp_add(ctx: interactions.SlashContext, monster: str, hp: int = None):
         if not await check_dm(ctx, ctx.author): return
 
         if monster in get_data(ctx.guild)[MONSTER_HP_KEY][MHP_HEALTH_KEY]:
-            await ctx.send(embeds=interactions.Embed(title="Already Added", description=f"**{monster}** is alread in the health tracker", color=interactions.Color.red()), ephemeral=True)
+            await ctx.send(embeds=interactions.Embed(title="Already Added", description=f"**{monster}** is alread in the health tracker", color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         if monster not in MONSTER_ID_BY_NAME and hp is None:
-            await ctx.send(embeds=interactions.Embed(title="Invalid Parameters", description="Must provide either official monster or HP.", color=interactions.Color.red()), ephemeral=True)
+            await ctx.send(embeds=interactions.Embed(title="Invalid Parameters", description="Must provide either official monster or HP.", color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         if hp is None:
             hp = MONSTER_STATS[MONSTER_ID_BY_NAME[monster]]["hp"]
             if hp == "—":
-                await ctx.send(embeds=interactions.Embed(title="HP Not Found", description=f"That monster has special (or no) HP. `/monster statblock {monster}` for more info", color=interactions.Color.red()), ephemeral=True)
+                await ctx.send(embeds=interactions.Embed(title="HP Not Found", description=f"That monster has special (or no) HP. `/monster statblock {monster}` for more info", color=interactions.BrandColors.RED), ephemeral=True)
 
         get_data(ctx.guild)[MONSTER_HP_KEY][MHP_HEALTH_KEY][monster] = hp
         save_data()
 
         await update_mhp_embeds(ctx)
 
-        await ctx.send(embeds=interactions.Embed(title="Added", description=f"Succesfully added **{monster}** with HP {hp}", color=interactions.Color.green()), ephemeral=True)
+        await ctx.send(embeds=interactions.Embed(title="Added", description=f"Succesfully added **{monster}** with HP {hp}", color=interactions.BrandColors.GREEN), ephemeral=True)
 
 
     @monster_hp.subcommand(
-        name="remove",
-        description="Remove a monster from health tracker.",
+        sub_cmd_name="remove",
+        sub_cmd_description="Remove a monster from health tracker.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="name",
                 description="Name of monster",
                 type=interactions.OptionType.STRING,
@@ -1393,11 +1410,11 @@ if __name__ == "__main__":
             )
         ]
     )
-    async def mhp_remove(ctx: interactions.CommandContext, name: str):
+    async def mhp_remove(ctx: interactions.SlashContext, name: str):
         if not await check_dm(ctx, ctx.author): return
 
         if name not in get_data(ctx.guild)[MONSTER_HP_KEY][MHP_HEALTH_KEY]:
-            await ctx.send(embeds=interactions.Embed(title="Not Found", description="Could not find a monster with that name", color=interactions.Color.red()), ephemeral=True)
+            await ctx.send(embeds=interactions.Embed(title="Not Found", description="Could not find a monster with that name", color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         del get_data(ctx.guild)[MONSTER_HP_KEY][MHP_HEALTH_KEY][name]
@@ -1405,21 +1422,21 @@ if __name__ == "__main__":
 
         await update_mhp_embeds(ctx)
 
-        await ctx.send(embeds=interactions.Embed(title="Removed", description=f"Succesfully removed **{name}**", color=interactions.Color.green()), ephemeral=True)
+        await ctx.send(embeds=interactions.Embed(title="Removed", description=f"Succesfully removed **{name}**", color=interactions.BrandColors.GREEN), ephemeral=True)
 
 
     @monster_hp.subcommand(
-        name="set",
-        description="Set the health of a monster.",
+        sub_cmd_name="set",
+        sub_cmd_description="Set the health of a monster.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="name",
                 description="Name of monster",
                 type=interactions.OptionType.STRING,
                 autocomplete=True,
                 required=True
             ),
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="hp",
                 description="The HP of the monster",
                 type=interactions.OptionType.INTEGER,
@@ -1427,11 +1444,11 @@ if __name__ == "__main__":
             )
         ]
     )
-    async def mhp_set(ctx: interactions.CommandContext, name: str, hp: int):
+    async def mhp_set(ctx: interactions.SlashContext, name: str, hp: int):
         if not await check_dm(ctx, ctx.author): return
 
         if name not in get_data(ctx.guild)[MONSTER_HP_KEY][MHP_HEALTH_KEY]:
-            await ctx.send(embeds=interactions.Embed(title="Not Found", description="Could not find a monster with that name", color=interactions.Color.red()), ephemeral=True)
+            await ctx.send(embeds=interactions.Embed(title="Not Found", description="Could not find a monster with that name", color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         get_data(ctx.guild)[MONSTER_HP_KEY][MHP_HEALTH_KEY][name] = hp
@@ -1439,10 +1456,10 @@ if __name__ == "__main__":
 
         await update_mhp_embeds(ctx)
 
-        await ctx.send(embeds=interactions.Embed(title="HP Set", description=f"Succesfully set **{name}**'s health to {hp}", color=interactions.Color.green()), ephemeral=True)
+        await ctx.send(embeds=interactions.Embed(title="HP Set", description=f"Succesfully set **{name}**'s health to {hp}", color=interactions.BrandColors.GREEN), ephemeral=True)
 
 
-    def get_mhp_embed(ctx: interactions.CommandContext):
+    def get_mhp_embed(ctx: interactions.SlashContext):
         mhp=get_data(ctx.guild)[MONSTER_HP_KEY][MHP_HEALTH_KEY]
         desc=""
 
@@ -1453,17 +1470,17 @@ if __name__ == "__main__":
 
 
     @monster_hp.subcommand(
-        name="subtract",
-        description="Subtract health from a monster.",
+        sub_cmd_name="subtract",
+        sub_cmd_description="Subtract health from a monster.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="name",
                 description="Name of monster",
                 type=interactions.OptionType.STRING,
                 autocomplete=True,
                 required=True
             ),
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="hp",
                 description="The HP to subtract",
                 type=interactions.OptionType.INTEGER,
@@ -1471,11 +1488,11 @@ if __name__ == "__main__":
             )
         ]
     )
-    async def mhp_subtract(ctx: interactions.CommandContext, name: str, hp: int):
+    async def mhp_subtract(ctx: interactions.SlashContext, name: str, hp: int):
         if not await check_dm(ctx, ctx.author): return
 
         if name not in get_data(ctx.guild)[MONSTER_HP_KEY][MHP_HEALTH_KEY]:
-            await ctx.send(embeds=interactions.Embed(title="Not Found", description="Could not find a monster with that name", color=interactions.Color.red()), ephemeral=True)
+            await ctx.send(embeds=interactions.Embed(title="Not Found", description="Could not find a monster with that name", color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         get_data(ctx.guild)[MONSTER_HP_KEY][MHP_HEALTH_KEY][name] -= hp
@@ -1483,15 +1500,15 @@ if __name__ == "__main__":
 
         await update_mhp_embeds(ctx)
 
-        await ctx.send(embeds=interactions.Embed(title="HP Subtracted", description=f"**{name}** damaged for {hp} HP", color=interactions.Color.green()), ephemeral=True)
+        await ctx.send(embeds=interactions.Embed(title="HP Subtracted", description=f"**{name}** damaged for {hp} HP", color=interactions.BrandColors.GREEN), ephemeral=True)
 
 
-    @monster_hp.autocomplete(name="name")
-    async def autocomplete_monster_name(ctx: interactions.CommandContext, user_input: str = ""):
+    @monster_hp.autocomplete(option_name="name")
+    async def autocomplete_monster_name(ctx: interactions.AutocompleteContext, user_input: str = ""):
         if MONSTER_HP_KEY not in get_data(ctx.guild) or MHP_HEALTH_KEY not in get_data(ctx.guild)[MONSTER_HP_KEY]:
-            await ctx.populate([])
+            await ctx.send([])
 
-        await ctx.populate([interactions.Choice(name=key, value=key) for key in get_data(ctx.guild)[MONSTER_HP_KEY][MHP_HEALTH_KEY] if key.lower().startswith(user_input.lower())][:25])
+        await ctx.send([interactions.SlashCommandChoice(name=key, value=key) for key in get_data(ctx.guild)[MONSTER_HP_KEY][MHP_HEALTH_KEY] if key.lower().startswith(user_input.lower())][:25])
 
 
     async def mhp_clear_callback(ctx: interactions.ComponentContext):
@@ -1500,12 +1517,12 @@ if __name__ == "__main__":
         if MHP_EMBEDS_KEY in guild[MONSTER_HP_KEY]:
             for channel, message in guild[MONSTER_HP_KEY][MHP_EMBEDS_KEY].items():
                 try:
-                    chnl = next((c for c in (await ctx.guild.get_all_channels()) if str(c.id) == channel), None)
+                    chnl = next((c for c in (await ctx.guild.fetch_channels()) if str(c.id) == channel), None)
                     if not chnl: return
 
-                    msg = await chnl.get_message(int(message))
+                    msg = await chnl.fetch_message(int(message))
                     await msg.delete()
-                except interactions.LibraryException:
+                except:
                     pass
 
         del guild[MONSTER_HP_KEY]
@@ -1513,69 +1530,69 @@ if __name__ == "__main__":
 
         await ctx.send(embeds=interactions.Embed(title="MHP Cleared",
                                          description="Monster HP tracker has been successfully cleared",
-                                         color=interactions.Color.green()), ephemeral=True)
+                                         color=interactions.BrandColors.GREEN), ephemeral=True)
 
 
     @monster_hp.subcommand(
-        name="clear",
-        description="Clear the monster HP tracker."
+        sub_cmd_name="clear",
+        sub_cmd_description="Clear the monster HP tracker."
     )
-    async def mhp_clear(ctx: interactions.CommandContext):
+    async def mhp_clear(ctx: interactions.SlashContext):
         if not await check_dm(ctx, ctx.author): return
 
         await confirm_action(ctx, "clear_mhp", mhp_clear_callback)
 
 
     @monster_hp.subcommand(
-        name="list",
-        description="Lists all the monsters' HPs.",
+        sub_cmd_name="list",
+        sub_cmd_description="Lists all the monsters' HPs.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="public",
                 description="Create an auto-updating public list",
                 type=interactions.OptionType.BOOLEAN
             )
         ]
     )
-    async def mhp_list(ctx: interactions.CommandContext, public: bool = False):
+    async def mhp_list(ctx: interactions.SlashContext, public: bool = False):
         if not await check_dm(ctx, ctx.author): return
 
         guild = get_data(ctx.guild)
 
-        message = await ctx.send(embeds=interactions.Embed(title="Monster HP", description=get_mhp_embed(ctx), color=interactions.Color.blurple()),
+        message = await ctx.send(embeds=interactions.Embed(title="Monster HP", description=get_mhp_embed(ctx), color=interactions.BrandColors.BLURPLE),
                        ephemeral=not public)
 
         if (public):
-            guild[MONSTER_HP_KEY][MHP_EMBEDS_KEY][str(message.channel_id)] = str(message.id)
+            guild[MONSTER_HP_KEY][MHP_EMBEDS_KEY][str(message.channel.id)] = str(message.id)
 
             save_data()
 
 
-    async def update_mhp_embeds(ctx: interactions.CommandContext):
+    async def update_mhp_embeds(ctx: interactions.SlashContext):
         mhp = get_data(ctx.guild)[MONSTER_HP_KEY]
         if MHP_EMBEDS_KEY in mhp:
             for channel, message in mhp[MHP_EMBEDS_KEY].items():
-                chnl = next((c for c in (await ctx.guild.get_all_channels()) if str(c.id) == channel), None)
+                chnl = next((c for c in (await ctx.guild.fetch_channels()) if str(c.id) == channel), None)
                 if not chnl: return
 
-                msg = await chnl.get_message(int(message))
+                msg = await chnl.fetch_message(int(message))
                 embed = msg.embeds[0]
                 embed.description = get_mhp_embed(ctx)
                 await msg.edit(embeds=embed)
 
 
-    @bot.command(
+    @interactions.slash_command(
         name="init",
         description="Initiative base command."
     )
-    async def init(ctx: interactions.CommandContext):
+    async def init(ctx: interactions.SlashContext):
         if INITIATIVE_KEY not in get_data(ctx.guild):
             get_data(ctx.guild)[INITIATIVE_KEY] = []
         if CURRENT_INITIATIVE_KEY not in get_data(ctx.guild):
             get_data(ctx.guild)[CURRENT_INITIATIVE_KEY] = 0
 
 
-    async def get_init_desc(ctx: interactions.CommandContext):
+    async def get_init_desc(ctx: interactions.SlashContext):
         guild = get_data(ctx.guild)
 
         desc = ""
@@ -1583,8 +1600,8 @@ if __name__ == "__main__":
         for idx, value in enumerate(guild[INITIATIVE_KEY]):
             text = value[0]
             try:
-                text = (await ctx.guild.get_member(int(value[0]))).mention
-            except (interactions.api.error.LibraryException, ValueError):
+                text = (await ctx.guild.fetch_member(int(value[0]))).mention
+            except:
                 pass
 
             desc += text + " (" + value[1] + ((", " + ("+" if int(value[2]) >= 0 else "") + value[2]) if value[2] != "None" else "") + ")" + (
@@ -1596,17 +1613,17 @@ if __name__ == "__main__":
 
 
     @init.subcommand(
-        name="list",
-        description="Lists the current initiative order.",
+        sub_cmd_name="list",
+        sub_cmd_description="Lists the current initiative order.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="public",
                 description="Create an auto-updating public init list, with a next button",
                 type=interactions.OptionType.BOOLEAN
             )
         ]
     )
-    async def init_list(ctx: interactions.CommandContext, public: bool = False):
+    async def init_list(ctx: interactions.SlashContext, public: bool = False):
         if public and not await check_dm(ctx, ctx.author): return
 
         guild = get_data(ctx.guild)
@@ -1619,49 +1636,53 @@ if __name__ == "__main__":
                     custom_id="initiative_next"
                 )
 
-        message = await ctx.send(components=components, embeds=interactions.Embed(title="Initiative", description=await get_init_desc(ctx), color=interactions.Color.blurple()),
+        message = await ctx.send(components=components, embeds=interactions.Embed(title="Initiative", description=await get_init_desc(ctx), color=interactions.BrandColors.BLURPLE),
                        ephemeral=not public)
 
         if (public):
             if INIT_EMBEDS_KEY not in guild:
                 guild[INIT_EMBEDS_KEY] = {}
 
-            guild[INIT_EMBEDS_KEY][str(message.channel_id)] = str(message.id)
+            guild[INIT_EMBEDS_KEY][str(message.channel.id)] = str(message.id)
 
             save_data()
 
 
-    async def update_init_embeds(ctx: interactions.CommandContext):
+    async def update_init_embeds(ctx: interactions.SlashContext):
         guild = get_data(ctx.guild)
         if INIT_EMBEDS_KEY in guild:
             to_del = []
             for channel, message in guild[INIT_EMBEDS_KEY].items():
-                chnl = next((c for c in (await ctx.guild.get_all_channels()) if str(c.id) == channel), None)
+                chnl = next((c for c in (await ctx.guild.fetch_channels()) if str(c.id) == channel), None)
                 if not chnl: return
 
                 try:
-                    msg = await chnl.get_message(int(message))
+                    msg = await chnl.fetch_message(int(message))
                     embed = msg.embeds[0]
                     embed.description = await get_init_desc(ctx)
                     await msg.edit(embeds=embed)
-                except interactions.LibraryException:
+                except:
                     to_del.append(channel)
 
             for i in to_del: del guild[INIT_EMBEDS_KEY][i]
 
 
+    @interactions.component_callback("initiative_next")
+    async def init_next_callback(ctx):
+        await init_next(ctx)
+
+
     @init.subcommand(
-        name="next",
-        description="Continue through the initiative order."
+        sub_cmd_name="next",
+        sub_cmd_description="Continue through the initiative order."
     )
-    @bot.component("initiative_next")
     async def init_next(ctx):
         if not await check_dm(ctx, ctx.author): return
 
         guild = get_data(ctx.guild)
 
         if len(guild[INITIATIVE_KEY]) == 0:
-            await ctx.send(embeds=interactions.Embed(title="Initiative Empty", description="Initiative is currently empty. Use `/init add [subcommand]` to add something", color=interactions.Color.red()), ephemeral=True)
+            await ctx.send(embeds=interactions.Embed(title="Initiative Empty", description="Initiative is currently empty. Use `/init add [subcommand]` to add something", color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         current = guild[CURRENT_INITIATIVE_KEY] = (int(guild[CURRENT_INITIATIVE_KEY]) + 1) % len(guild[INITIATIVE_KEY])
@@ -1671,8 +1692,8 @@ if __name__ == "__main__":
         save_data()
 
         try:
-            text = (await ctx.guild.get_member(int(name))).mention
-        except (interactions.api.error.LibraryException, ValueError):
+            text = (await ctx.guild.fetch_member(int(name))).mention
+        except:
             pass
 
         modifier = guild[INITIATIVE_KEY][current][2]
@@ -1681,7 +1702,7 @@ if __name__ == "__main__":
                                                  description="Next in initiative is: **" + text + "** (" +
                                                              guild[INITIATIVE_KEY][current][1] + ", " + (
                                                                  "+" if int(modifier) >= 0 else "") + modifier + ")",
-                                                 color=interactions.Color.blurple()), ephemeral = type(ctx) == interactions.ComponentContext)
+                                                 color=interactions.BrandColors.BLURPLE), ephemeral = type(ctx) == interactions.ComponentContext)
 
         await update_init_embeds(ctx)
 
@@ -1694,14 +1715,14 @@ if __name__ == "__main__":
         save_data()
         await ctx.send(embeds=interactions.Embed(title="Initiative Cleared",
                                                  description="Initiative has been successfully cleared",
-                                                 color=interactions.Color.green()), ephemeral=True)
+                                                 color=interactions.BrandColors.GREEN), ephemeral=True)
 
         if INIT_EMBEDS_KEY in guild:
             for channel, message in guild[INIT_EMBEDS_KEY].items():
-                chnl = next((c for c in (await ctx.guild.get_all_channels()) if str(c.id) == channel), None)
+                chnl = next((c for c in (await ctx.guild.fetch_channels()) if str(c.id) == channel), None)
                 if not chnl: return
 
-                msg = await chnl.get_message(int(message))
+                msg = await chnl.fetch_message(int(message))
                 await msg.delete()
 
         if INIT_EMBEDS_KEY in guild: del guild[INIT_EMBEDS_KEY]
@@ -1710,24 +1731,16 @@ if __name__ == "__main__":
 
 
     @init.subcommand(
-        name="clear",
-        description="Clears the entire initiative."
+        sub_cmd_name="clear",
+        sub_cmd_description="Clears the entire initiative."
     )
-    async def init_clear(ctx: interactions.CommandContext):
+    async def init_clear(ctx: interactions.SlashContext):
         if not await check_dm(ctx, ctx.author): return
 
         await confirm_action(ctx, "clear_initiative", init_clear_callback)
 
 
-    @init.group(
-        name="add",
-        description="Add something to the initiative order."
-    )
-    async def init_add(ctx: interactions.CommandContext):
-        pass
-
-
-    async def add_player_to_initiative(ctx: interactions.CommandContext, player: interactions.Member, score: int = None):
+    async def add_player_to_initiative(ctx: interactions.SlashContext, player: interactions.Member, score: int = None):
         if any(value[0] == player.id for value in get_data(ctx.guild)[INITIATIVE_KEY]):
             return None
 
@@ -1749,24 +1762,26 @@ if __name__ == "__main__":
         return score
 
 
-    @init_add.subcommand(
-        name="player",
-        description="Add a player to the initiative order.",
+    @init.subcommand(
+        group_name="add",
+        group_description="Add something to the initiative order.",
+        sub_cmd_name="player",
+        sub_cmd_description="Add a player to the initiative order.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="player",
                 description="The player to add.",
                 type=interactions.OptionType.USER,
                 required=True
             ),
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="score",
                 description="The score to use, if provided.",
                 type=interactions.OptionType.INTEGER
             )
         ]
     )
-    async def init_add_player(ctx: interactions.CommandContext, player: interactions.Member, score: int = None):
+    async def init_add_player(ctx: interactions.SlashContext, player: interactions.Member, score: int = None):
         if not await check_dm(ctx, ctx.author): return
         if not score and not (await check_char_sheet(ctx, player, False)): return
 
@@ -1775,27 +1790,29 @@ if __name__ == "__main__":
         if not score:
             await ctx.send(embeds=interactions.Embed(title="Already Added",
                                                      description=player.mention + " is already in the initiative order. Use `/init remove " + player.user.username + "#" + player.user.discriminator + "` to remove them",
-                                                     color=interactions.Color.red()), ephemeral=True)
+                                                     color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         await ctx.send(embeds=interactions.Embed(title="Added to Initiative",
                                                  description=f"Added {player.mention} with a score of **{score}**",
-                                                 color=interactions.Color.green()), ephemeral=True)
+                                                 color=interactions.BrandColors.GREEN), ephemeral=True)
 
         await update_init_embeds(ctx)
 
 
-    @init_add.subcommand(
-        name="all-players",
-        description="Add every player with a character sheet linked to the initiative order."
+    @init.subcommand(
+        group_name="add",
+        group_description="Add something to the initiative order.",
+        sub_cmd_name="all-players",
+        sub_cmd_description="Add every player with a character sheet linked to the initiative order."
     )
-    async def init_add_all_players(ctx: interactions.CommandContext):
+    async def init_add_all_players(ctx: interactions.SlashContext):
         if not await check_dm(ctx, ctx.author): return
 
-        await ctx.defer(True)
+        await ctx.defer(ephemeral=True)
 
         desc = ""
-        for member in await ctx.guild.get_all_members():
+        for member in ctx.guild.members:
             if str(member.id) in get_data(ctx.guild)[CHARACTERS_KEY]:
                 score = await add_player_to_initiative(ctx, member)
                 if not score: continue
@@ -1805,67 +1822,69 @@ if __name__ == "__main__":
         if len(desc) == 0:
             await ctx.send(embeds=interactions.Embed(title="Nobody Added",
                                                      description="Possible reasons: already being in initiative or not having a character sheet linked",
-                                                     color=interactions.Color.red()), ephemeral=True)
+                                                     color=interactions.BrandColors.RED), ephemeral=True)
         else:
             await ctx.send(
-                embeds=interactions.Embed(title="Added to Initiative", description=desc, color=interactions.Color.green()),
+                embeds=interactions.Embed(title="Added to Initiative", description=desc, color=interactions.BrandColors.GREEN),
                 ephemeral=True)
 
             await update_init_embeds(ctx)
 
 
-    @init_add.subcommand(
-        name="other",
-        description="Add a non-player to the initiative order.",
+    @init.subcommand(
+        group_name="add",
+        group_description="Add something to the initiative order.",
+        sub_cmd_name="other",
+        sub_cmd_description="Add a non-player to the initiative order.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="name",
                 description="The name of the thing in initiative.",
                 type=interactions.OptionType.STRING,
                 required=True
             ),
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="initiative",
                 description="The initiative bonus of the thing. +/- included (ex -3, 1, +0).",
                 type=interactions.OptionType.STRING,
                 required=True
             ),
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="score",
                 description="The initiative score of the thing.",
                 type=interactions.OptionType.INTEGER
             )
         ]
     )
-    async def init_add_other(ctx: interactions.CommandContext, name: str, initiative: str, score: int = None):
+    async def init_add_other(ctx: interactions.SlashContext, name: str, initiative: str, score: int = None):
         if not await check_dm(ctx, ctx.author): return
         initiative = initiative.replace(" ", "")
 
         try:
-            await ctx.guild.get_member(int(name))
+            await ctx.guild.fetch_member(int(name))
             await ctx.send(embeds=interactions.Embed(title="Same as Member ID",
                                                      description="You cannot create an initiative with the same name as a member's ID",
-                                                     color=interactions.Color.red()), ephemeral=True)
+                                                     color=interactions.BrandColors.RED), ephemeral=True)
             return
-        except (interactions.api.error.LibraryException, ValueError):
+        except:
             pass
 
-        if any(str(member.id) == name for member in (await ctx.guild.get_all_members())):
+        if any(str(member.id) == name for member in ctx.guild.members):
             await ctx.send(embeds=interactions.Embed(title="Same as Member ID",
                                                      description="You cannot create an initiative with the same name as a member's ID",
-                                                     color=interactions.Color.red()), ephemeral=True)
+                                                     color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         if any(value[0] == name for value in get_data(ctx.guild)[INITIATIVE_KEY]):
             await ctx.send(embeds=interactions.Embed(title="Already Added",
                                                      description="'" + name + "' is already in the initiative order. Use `/init remove " + name + "` to remove it",
-                                                     color=interactions.Color.red()), ephemeral=True)
+                                                     color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         if not re.match("[+-][0-9]*", initiative):
             await ctx.send(embeds=interactions.Embed(title="Invalid Initiative",
                                                      description="Initiative parameter not in the form '+/-[number]'",
-                                                     color=interactions.Color.red()), ephemeral=True)
+                                                     color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         if not score:
@@ -1876,24 +1895,18 @@ if __name__ == "__main__":
 
         await ctx.send(embeds=interactions.Embed(title="Added to Initiative",
                                                  description="Added " + name + " with a score of **" + str(score) + "**",
-                                                 color=interactions.Color.green()), ephemeral=True)
+                                                 color=interactions.BrandColors.GREEN), ephemeral=True)
 
         await update_init_embeds(ctx)
 
 
-    @init.group(
-        name="remove",
-        description="Remove something from the initiative order."
-    )
-    async def init_remove(ctx: interactions.CommandContext):
-        pass
-
-
-    @init_remove.subcommand(
-        name="player",
-        description="Remove a player from the initiative order.",
+    @init.subcommand(
+        group_name="remove",
+        group_description="Remove something from the initiative order.",
+        sub_cmd_name="player",
+        sub_cmd_description="Remove a player from the initiative order.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="player",
                 description="The player to remove.",
                 type=interactions.OptionType.USER,
@@ -1901,7 +1914,7 @@ if __name__ == "__main__":
             )
         ]
     )
-    async def init_remove_player(ctx: interactions.CommandContext, player: interactions.Member):
+    async def init_remove_player(ctx: interactions.SlashContext, player: interactions.Member):
         if not await check_dm(ctx, ctx.author): return
 
         initiative_l = get_data(ctx.guild)[INITIATIVE_KEY]
@@ -1909,7 +1922,7 @@ if __name__ == "__main__":
         if not any(value[0] == player.id for value in initiative_l):
             await ctx.send(embeds=interactions.Embed(title="Doesn't Exist",
                                                      description=player.mention + " is not in the initiative order",
-                                                     color=interactions.Color.red()), ephemeral=True)
+                                                     color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         for idx, value in enumerate(initiative_l):
@@ -1917,18 +1930,20 @@ if __name__ == "__main__":
                 del initiative_l[idx]
                 await ctx.send(
                     embeds=interactions.Embed(title="Removed from Initiative", description="Removed " + player.mention,
-                                              color=interactions.Color.green()))
+                                              color=interactions.BrandColors.GREEN))
 
                 await update_init_embeds(ctx)
 
                 return
 
 
-    @init_remove.subcommand(
-        name="other",
-        description="Remove a non-player from the initiative order.",
+    @init.subcommand(
+        group_name="remove",
+        group_description="Remove something from the initiative order.",
+        sub_cmd_name="other",
+        sub_cmd_description="Remove a non-player from the initiative order.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="name",
                 description="The name of the thing in initiative.",
                 type=interactions.OptionType.STRING,
@@ -1936,7 +1951,7 @@ if __name__ == "__main__":
             )
         ]
     )
-    async def init_remove_other(ctx: interactions.CommandContext, name: str):
+    async def init_remove_other(ctx: interactions.SlashContext, name: str):
         if not await check_dm(ctx, ctx.author): return
 
         initiative_l = get_data(ctx.guild)[INITIATIVE_KEY]
@@ -1944,39 +1959,39 @@ if __name__ == "__main__":
         if not any(value[0] == name for value in initiative_l):
             await ctx.send(embeds=interactions.Embed(title="Doesn't Exist",
                                                      description="'" + name + "' is not in the initiative order",
-                                                     color=interactions.Color.red()), ephemeral=True)
+                                                     color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         for idx, value in enumerate(initiative_l):
             if value[0] == name:
                 del initiative_l[idx]
                 await ctx.send(embeds=interactions.Embed(title="Removed from Initiative", description="Removed " + name,
-                                                         color=interactions.Color.green()))
+                                                         color=interactions.BrandColors.GREEN))
                 await update_init_embeds(ctx)
 
                 return
 
 
 
-    @bot.command(
+    @interactions.slash_command(
         name="spell",
         description="Get a spell from the wikidot library, either from a selection menu or by name.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="spell",
                 description="The spell name.",
                 type=interactions.OptionType.STRING,
                 required=True,
                 autocomplete=True
             ),
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="public",
                 description="Show response publicly.",
                 type=interactions.OptionType.BOOLEAN
             )
         ]
     )
-    async def spell_command(ctx: interactions.CommandContext, spell: str, public: bool = False):
+    async def spell_command(ctx: interactions.SlashContext, spell: str, public: bool = False):
         spell = spell.title()
 
         key = None
@@ -1987,7 +2002,7 @@ if __name__ == "__main__":
 
         if not key:
             await ctx.send(embeds=interactions.Embed(title="Not Found", description="Could not find that spell",
-                                                     color=interactions.Color.red()), ephemeral=True)
+                                                     color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         r = requests.get("http://dnd5e.wikidot.com/spell:" + ALL_SPELLS[key])
@@ -2019,46 +2034,44 @@ if __name__ == "__main__":
         Source: {source}
         """
 
-        await ctx.send(embeds=interactions.Embed(title=key, description=embed_desc, color=interactions.Color.blurple()),
+        await ctx.send(embeds=interactions.Embed(title=key, description=embed_desc, color=interactions.BrandColors.BLURPLE),
                        ephemeral=not public)
 
 
-    @spell_command.autocomplete(
-        name="spell"
-    )
-    async def autocomplete_spell(ctx: interactions.CommandContext, user_input: str = ""):
+    @spell_command.autocomplete("spell")
+    async def autocomplete_spell(ctx: interactions.AutocompleteContext, user_input: str = ""):
         spells = {key: ALL_SPELLS[key] for key in
                   list(filter(lambda key: key.lower().startswith(user_input.lower()), ALL_SPELLS.keys()))[:25]}
-        await ctx.populate([interactions.Choice(name=key, value=key) for key in spells.keys()])
+        await ctx.send([interactions.SlashCommandChoice(name=key, value=key) for key in spells.keys()])
 
 
-    @bot.command(
+    @interactions.slash_command(
         name="monster",
         description="Base command for querying monsters."
     )
-    async def monster_command(ctx: interactions.CommandContext):
+    async def monster_command(ctx: interactions.SlashContext):
         pass
 
 
     @monster_command.subcommand(
-        name="statblock",
-        description="Get a monster statblock, either from a selection menu or by name.",
+        sub_cmd_name="statblock",
+        sub_cmd_description="Get a monster statblock, either from a selection menu or by name.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="monster",
                 description="The monster's name.",
                 type=interactions.OptionType.STRING,
                 required=True,
                 autocomplete=True
             ),
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="public",
                 description="Show response publicly.",
                 type=interactions.OptionType.BOOLEAN
             )
         ]
     )
-    async def monster_statblock(ctx: interactions.CommandContext, monster: str, public: bool = False):
+    async def monster_statblock(ctx: interactions.SlashContext, monster: str, public: bool = False):
         name = None
         for k in MONSTER_ID_BY_NAME.keys():
             if re.sub("[^a-z]", "", monster.lower()) == re.sub("[^a-z]", "", k.lower()):
@@ -2067,7 +2080,7 @@ if __name__ == "__main__":
 
         if not name:
             await ctx.send(embeds=interactions.Embed(title="Not Found", description="Could not find that monster",
-                                                     color=interactions.Color.red()), ephemeral=True)
+                                                     color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         id = MONSTER_ID_BY_NAME[name]
@@ -2085,7 +2098,7 @@ if __name__ == "__main__":
             with ZipFile(monster_statblocks_file, "r") as zip:
                 zip.extract(file_name, cache_dir)
 
-            message = await ctx.channel.send(files=interactions.File(filename=file_path))
+            message = await ctx.channel.send(files=interactions.File(file=str(file_path)))
             url = message.attachments[0].url
             await message.delete()
 
@@ -2094,66 +2107,57 @@ if __name__ == "__main__":
             MONSTER_STATS[id]["cdn"] = url
 
         await ctx.send(
-            embeds=interactions.Embed(image=interactions.EmbedImageStruct(url=url), color=interactions.Color.blurple()),
+            embeds=interactions.Embed(images=[interactions.EmbedAttachment(url=url)], color=interactions.BrandColors.BLURPLE),
             ephemeral=not public)
 
 
-    def get_speed_choices():
-        choices = []
-        for stats in d.values():
-            for speed in stats["speeds"].keys():
-                choices.append(interactions.Choice(name=speed.title(), value=speed))
-
-            return choices
-
-
     @monster_command.subcommand(
-        name="search",
-        description="Search for a monster, based on certain criteria. For multiple inputs, use CSV: `key1,key2,key3`",
+        sub_cmd_name="search",
+        sub_cmd_description="Search for a monster, based on certain criteria. For multiple inputs, use CSV: `key1,key2,key3`",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="keywords",
                 description="Search for given keywords in the name.",
                 type=interactions.OptionType.STRING
             ),
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="cr",
                 description="Search for monsters with the given CRs. Can also be provided as a range: `1/2-3,7-9`",
                 type=interactions.OptionType.STRING
             ),
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="size",
                 description="Search for monsters with the given sizes.",
                 type=interactions.OptionType.STRING
             ),
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="alignment",
                 description="Search for monsters with the given alignments.",
                 type=interactions.OptionType.STRING
             ),
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="type",
                 description="Search for monsters with the given types.",
                 type=interactions.OptionType.STRING
             ),
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="subtype",
                 description="Search for monsters with the given subtypes.",
                 type=interactions.OptionType.STRING
             ),
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="speed",
                 description="Search for monsters that have the given speed.",
                 type=interactions.OptionType.STRING
             ),
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="source",
                 description="Search for monsters from the given source.",
                 type=interactions.OptionType.STRING
             )
         ]
     )
-    async def monster_search(ctx: interactions.CommandContext, keywords: str = None, cr: str = None, size: str = None,
+    async def monster_search(ctx: interactions.SlashContext, keywords: str = None, cr: str = None, size: str = None,
                              alignment: str = None, type: str = None, subtype: str = None, speed: str = None,
                              source: str = None):
         if cr:
@@ -2162,7 +2166,7 @@ if __name__ == "__main__":
                 if not all([c in MONSTER_CR for c in challenge.split("-")]):
                     await ctx.send(
                         embeds=interactions.Embed(title="Error", description="CR doesn't match the format `cr` or `cr-cr`",
-                                                  color=interactions.Color.red()), ephemeral=True)
+                                                  color=interactions.BrandColors.RED), ephemeral=True)
                     return
 
         def test(id: str):
@@ -2261,47 +2265,59 @@ if __name__ == "__main__":
                     descs[-1] += desc
 
         for desc in descs:
-            await ctx.send(embeds=interactions.Embed(description=desc, color=interactions.Color.blurple()), ephemeral=True)
+            await ctx.send(embeds=interactions.Embed(description=desc, color=interactions.BrandColors.BLURPLE), ephemeral=True)
 
 
-    @monster_command.group(
-        name="search-options",
-        description="List the possibilities for the `/monster search` parameters."
+    @monster_command.subcommand(
+        group_name="search-options",
+        group_description="List the possibilities for the `/monster search` parameters.",
+        sub_cmd_name="cr"
     )
-    async def monster_search_options(ctx: interactions.CommandContext):
-        pass
-
-
-    @monster_search_options.subcommand(name="cr")
-    async def monster_search_options_cr(ctx: interactions.CommandContext):
+    async def monster_search_options_cr(ctx: interactions.SlashContext):
         await ctx.send(embeds=interactions.Embed(title="CR Options",
                                                  description='\n'.join(['• ' + cr for cr in ["1/8", "1/4", "1/2", "1-30"]]),
-                                                 color=interactions.Color.blurple()), ephemeral=True)
+                                                 color=interactions.BrandColors.BLURPLE), ephemeral=True)
 
 
-    @monster_search_options.subcommand(name="size")
-    async def monster_search_options_cr(ctx: interactions.CommandContext):
+    @monster_command.subcommand(
+        group_name="search-options",
+        group_description="List the possibilities for the `/monster search` parameters.",
+        sub_cmd_name="size"
+    )
+    async def monster_search_options_cr(ctx: interactions.SlashContext):
         await ctx.send(embeds=interactions.Embed(title="Size Options", description='\n'.join(
             ['• ' + size.title() for size in ["tiny", "small", "medium", "large", "huge", "gargantuan"]]),
-                                                 color=interactions.Color.blurple()), ephemeral=True)
+                                                 color=interactions.BrandColors.BLURPLE), ephemeral=True)
 
 
-    @monster_search_options.subcommand(name="alignment")
-    async def monster_search_options_cr(ctx: interactions.CommandContext):
+    @monster_command.subcommand(
+        group_name="search-options",
+        group_description="List the possibilities for the `/monster search` parameters.",
+        sub_cmd_name="alignment"
+    )
+    async def monster_search_options_cr(ctx: interactions.SlashContext):
         await ctx.send(embeds=interactions.Embed(title="Alignment Options", description='\n'.join(
             sorted(set('• ' + stats['alignment'].title() for stats in MONSTER_STATS.values()))),
-                                                 color=interactions.Color.blurple()), ephemeral=True)
+                                                 color=interactions.BrandColors.BLURPLE), ephemeral=True)
 
 
-    @monster_search_options.subcommand(name="type")
-    async def monster_search_options_cr(ctx: interactions.CommandContext):
+    @monster_command.subcommand(
+        group_name="search-options",
+        group_description="List the possibilities for the `/monster search` parameters.",
+        sub_cmd_name="type"
+    )
+    async def monster_search_options_cr(ctx: interactions.SlashContext):
         await ctx.send(embeds=interactions.Embed(title="Type Options", description='\n'.join(
-            set('• ' + stats['type'].title() for stats in MONSTER_STATS.values())), color=interactions.Color.blurple()),
+            set('• ' + stats['type'].title() for stats in MONSTER_STATS.values())), color=interactions.BrandColors.BLURPLE),
                        ephemeral=True)
 
 
-    @monster_search_options.subcommand(name="subtype")
-    async def monster_search_options_cr(ctx: interactions.CommandContext):
+    @monster_command.subcommand(
+        group_name="search-options",
+        group_description="List the possibilities for the `/monster search` parameters.",
+        sub_cmd_name="subtype"
+    )
+    async def monster_search_options_cr(ctx: interactions.SlashContext):
         subtypes = set()
 
         for stats in MONSTER_STATS.values():
@@ -2312,66 +2328,74 @@ if __name__ == "__main__":
                     subtypes.add("• " + subtype.title())
 
         await ctx.send(embeds=interactions.Embed(title="Subtype Options", description='\n'.join(subtypes),
-                                                 color=interactions.Color.blurple()), ephemeral=True)
+                                                 color=interactions.BrandColors.BLURPLE), ephemeral=True)
 
 
-    @monster_search_options.subcommand(name="speed")
-    async def monster_search_options_cr(ctx: interactions.CommandContext):
+    @monster_command.subcommand(
+        group_name="search-options",
+        group_description="List the possibilities for the `/monster search` parameters.",
+        sub_cmd_name="speed"
+    )
+    async def monster_search_options_cr(ctx: interactions.SlashContext):
         speeds = set()
 
         for stats in MONSTER_STATS.values():
             for speed in stats['speeds'].keys(): speeds.add("• " + speed.title())
 
         await ctx.send(embeds=interactions.Embed(title="Speed Options", description='\n'.join(speeds),
-                                                 color=interactions.Color.blurple()), ephemeral=True)
+                                                 color=interactions.BrandColors.BLURPLE), ephemeral=True)
 
 
-    @monster_search_options.subcommand(name="source")
-    async def monster_search_options_cr(ctx: interactions.CommandContext):
+    @monster_command.subcommand(
+        group_name="search-options",
+        group_description="List the possibilities for the `/monster search` parameters.",
+        sub_cmd_name="source"
+    )
+    async def monster_search_options_cr(ctx: interactions.SlashContext):
         await ctx.send(embeds=interactions.Embed(title="Source Options", description='\n'.join(
             sorted(set('• ' + name.split("-")[-1] for name in MONSTER_STATS.keys()))),
-                                                 color=interactions.Color.blurple()), ephemeral=True)
+                                                 color=interactions.BrandColors.BLURPLE), ephemeral=True)
 
 
     NEW_DATE_OPTIONS = [
-        interactions.Option(
+        interactions.SlashCommandOption(
             name="day",
             description="The day of the month.",
             type=interactions.OptionType.INTEGER
         ),
-        interactions.Option(
+        interactions.SlashCommandOption(
             name="month",
             description="The month.",
             type=interactions.OptionType.STRING,
-            choices=[interactions.Choice(name=month, value=month) for month in MONTHS]
+            choices=[interactions.SlashCommandChoice(name=month, value=month) for month in MONTHS]
         ),
-        interactions.Option(
+        interactions.SlashCommandOption(
             name="year",
             description="The year, number. To set the calendar, use `/date calendar`.",
             type=interactions.OptionType.INTEGER
         ),
-        interactions.Option(
+        interactions.SlashCommandOption(
             name="days",
             description="Difference in days, positive or negative.",
             type=interactions.OptionType.INTEGER
         ),
-        interactions.Option(
+        interactions.SlashCommandOption(
             name="relative",
             description="Which date it's relative to.",
             type=interactions.OptionType.STRING,
             choices=[
-                interactions.Choice(
+                interactions.SlashCommandChoice(
                     name="Campaign Start",
                     value="CS",
                 ),
-                interactions.Choice(
+                interactions.SlashCommandChoice(
                     name="Current Date",
                     value="CD"
                 )
             ]
         )
     ]
-    EXISTING_DATE_OPTION = interactions.Option(
+    EXISTING_DATE_OPTION = interactions.SlashCommandOption(
         name="date",
         description="The date to use. Format as 'day month year' or 'days CS[campaign start]/CD[current date]'.",
         type=interactions.OptionType.STRING,
@@ -2380,26 +2404,26 @@ if __name__ == "__main__":
     )
 
 
-    @bot.command(
+    @interactions.slash_command(
         name="date",
         description="Base command for modifying the timeline."
     )
-    async def date_command(ctx: interactions.CommandContext):
+    async def date_command(ctx: interactions.SlashContext):
         if DATES_KEY not in get_data(ctx.guild):
             get_data(ctx.guild)[DATES_KEY] = {TIMELINE_KEY: {}}
 
 
-    async def check_date(ctx: interactions.CommandContext, day: int, month: str, year: int):
+    async def check_date(ctx: interactions.SlashContext, day: int, month: str, year: int):
         if day < 1 or day > 30 or year < 1:
             await ctx.send(
                 embeds=interactions.Embed(title="Error", description="Invalid day or year. 1 <= day <= 30, year > 0.",
-                                          color=interactions.Color.red()))
+                                          color=interactions.BrandColors.RED))
             return None
 
         return f"{day}-{MONTHS.index(month)}-{year}"
 
 
-    async def convert_and_check_date(ctx: interactions.CommandContext, date: str):
+    async def convert_and_check_date(ctx: interactions.SlashContext, date: str):
         relative = re.compile("-?[0-9]* (CS|CD)")
         absolute = re.compile(f"(30|2[0-9]|1[0-9]|[1-9]) ({'|'.join(MONTHS)}), [0-9]+")
 
@@ -2413,7 +2437,7 @@ if __name__ == "__main__":
             dates = get_data(ctx.guild)[DATES_KEY]
             await ctx.send(embeds=interactions.Embed(title="Error",
                                                      description=f"Date must follow the format 'day month year' or 'days CS[campaign start]/CD[current date]'.\n\n__Examples:__ '1 {MONTHS[0]} 1{' ' + dates[CALENDAR_KEY] if CALENDAR_KEY in dates else ''}', '5 CS', '-5 CD'.",
-                                                     color=interactions.Color.red()), ephemeral=True)
+                                                     color=interactions.BrandColors.RED), ephemeral=True)
 
             return None
 
@@ -2430,7 +2454,7 @@ if __name__ == "__main__":
         return place1, place2
 
 
-    async def relative_id_to_key(ctx: interactions.CommandContext, relative: str):
+    async def relative_id_to_key(ctx: interactions.SlashContext, relative: str):
         key = None
 
         if relative == "CD":
@@ -2440,14 +2464,14 @@ if __name__ == "__main__":
 
         if key and key not in get_data(ctx.guild)[DATES_KEY]:
             await ctx.send(embeds=interactions.Embed(title="Error", description=f"{'Current' if key == CURRENT_DATE_KEY else 'Campaign start'} date not set! `/date " + (
-                "set" if key == CURRENT_DATE_KEY else "origin") + "` to set it", color=interactions.Color.red()),
+                "set" if key == CURRENT_DATE_KEY else "origin") + "` to set it", color=interactions.BrandColors.RED),
                            ephemeral=True)
             return None
 
         return key
 
 
-    async def relative_to_absolute_date(ctx: interactions.CommandContext, days: int, relative: str):
+    async def relative_to_absolute_date(ctx: interactions.SlashContext, days: int, relative: str):
         relative_key = await relative_id_to_key(ctx, relative)
         if not relative_key: return None
 
@@ -2464,13 +2488,13 @@ if __name__ == "__main__":
         return f"{day}-{month}-{year}"
 
 
-    async def check_new_date(ctx: interactions.CommandContext, day: int, month: str, year: int, days: int, relative: str):
+    async def check_new_date(ctx: interactions.SlashContext, day: int, month: str, year: int, days: int, relative: str):
         if (days and not relative) or (relative and not days) or (day and (not month or not year)) or (
                 month and (not day or not year)) or (year and (not day or not month)) or (
                 not days and not relative and not day and not month and not year):
             await ctx.send(embeds=interactions.Embed(title="Error",
                                                      description="Must have either `days` and `relative` or `day`, `month`, and `year`.",
-                                                     color=interactions.Color.red()), ephemeral=True)
+                                                     color=interactions.BrandColors.RED), ephemeral=True)
             return None
 
         if days and relative:
@@ -2479,7 +2503,7 @@ if __name__ == "__main__":
             return await check_date(ctx, day, month, year)
 
 
-    async def set_date_command(ctx: interactions.CommandContext, days: int, relative: str, day: int, month: str, year: int,
+    async def set_date_command(ctx: interactions.SlashContext, days: int, relative: str, day: int, month: str, year: int,
                                key: str):
         if not await check_dm(ctx, ctx.author): return None
 
@@ -2492,18 +2516,18 @@ if __name__ == "__main__":
 
 
     @date_command.subcommand(
-        name="origin",
-        description="Set or get the date for the campaign start.",
+        sub_cmd_name="origin",
+        sub_cmd_description="Set or get the date for the campaign start.",
         options=NEW_DATE_OPTIONS
     )
-    async def date_origin(ctx: interactions.CommandContext, days: int = None, relative: str = None, day: int = None,
+    async def date_origin(ctx: interactions.SlashContext, days: int = None, relative: str = None, day: int = None,
                           month: str = None, year: int = None):
         if not (days or relative or day or month or year):
             dates = get_data(ctx.guild)[DATES_KEY]
             if CAMPAIGN_START_KEY in dates:
-                await ctx.send(embeds=interactions.Embed(title="Campaign Start", description="Campaign start date is "+format_date(ctx.guild, dates[CAMPAIGN_START_KEY]), color=interactions.Color.blurple()), ephemeral=True)
+                await ctx.send(embeds=interactions.Embed(title="Campaign Start", description="Campaign start date is "+format_date(ctx.guild, dates[CAMPAIGN_START_KEY]), color=interactions.BrandColors.BLURPLE), ephemeral=True)
             else:
-                await ctx.send(embeds=interactions.Embed(title="Not Set", description="Campaign start date is not set yet", color=interactions.Color.red()), ephemeral=True)
+                await ctx.send(embeds=interactions.Embed(title="Not Set", description="Campaign start date is not set yet", color=interactions.BrandColors.RED), ephemeral=True)
 
             return
 
@@ -2512,25 +2536,25 @@ if __name__ == "__main__":
         if date:
             await ctx.send(embeds=interactions.Embed(title="Date Set",
                                                      description="Campaign start date successfully set to **" + format_date(
-                                                         ctx.guild, date) + "**", color=interactions.Color.green()),
+                                                         ctx.guild, date) + "**", color=interactions.BrandColors.GREEN),
                            ephemeral=True)
 
 
     @date_command.subcommand(
-        name="current",
-        description="Set the current date.",
+        sub_cmd_name="current",
+        sub_cmd_description="Set the current date.",
         options=NEW_DATE_OPTIONS
     )
-    async def date_current(ctx: interactions.CommandContext, days: int = None, relative: str = None, day: int = None,
+    async def date_current(ctx: interactions.SlashContext, days: int = None, relative: str = None, day: int = None,
                            month: str = None, year: int = None):
         if not (days or relative or day or month or year):
             dates = get_data(ctx.guild)[DATES_KEY]
             if CURRENT_DATE_KEY in dates:
                 await ctx.send(embeds=interactions.Embed(title="Current Date", description="Current date is " + format_date(ctx.guild, dates[CURRENT_DATE_KEY]),
-                                                         color=interactions.Color.blurple()), ephemeral=True)
+                                                         color=interactions.BrandColors.BLURPLE), ephemeral=True)
             else:
                 await ctx.send(embeds=interactions.Embed(title="Not Set", description="Current date is not set yet",
-                                                         color=interactions.Color.red()), ephemeral=True)
+                                                         color=interactions.BrandColors.RED), ephemeral=True)
 
             return
 
@@ -2539,29 +2563,29 @@ if __name__ == "__main__":
         if date:
             await ctx.send(embeds=interactions.Embed(title="Date Set",
                                                      description="Current date successfully set to **" + format_date(
-                                                         ctx.guild, date) + "**", color=interactions.Color.green()),
+                                                         ctx.guild, date) + "**", color=interactions.BrandColors.GREEN),
                            ephemeral=True)
 
 
     @date_command.subcommand(
-        name="next",
-        description="Advance the current date.",
+        sub_cmd_name="next",
+        sub_cmd_description="Advance the current date.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="downtime",
                 description="Applies daily income and expenses automatically.",
                 type=interactions.OptionType.BOOLEAN
             )
         ]
     )
-    async def date_next(ctx: interactions.CommandContext, downtime: bool = False):
+    async def date_next(ctx: interactions.SlashContext, downtime: bool = False):
         date = await set_date_command(ctx, 1, "CD", None, None, None, CURRENT_DATE_KEY)
 
         if date:
             await ctx.send(embeds=interactions.Embed(title="Date Set",
                                                      description="Current date advanced to **" + format_date(ctx.guild,
                                                                                                              date) + "**",
-                                                     color=interactions.Color.green()), ephemeral=True)
+                                                     color=interactions.BrandColors.GREEN), ephemeral=True)
 
             if downtime:
                 if MONEY_KEY not in get_data(ctx.guild): return
@@ -2591,29 +2615,29 @@ if __name__ == "__main__":
 
                 await ctx.send(content=content[:-1] + "||",
                                embeds=interactions.Embed(title="Daily Income", description=desc[:-1],
-                                                         color=interactions.Color.blurple()))
+                                                         color=interactions.BrandColors.BLURPLE))
 
 
     @date_command.subcommand(
-        name="calendar",
-        description="Set the calender suffix.",
+        sub_cmd_name="calendar",
+        sub_cmd_description="Set the calender suffix.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="suffix",
                 description="The suffix to use (e.g. DR)",
                 type=interactions.OptionType.STRING
             )
         ]
     )
-    async def date_calendar(ctx: interactions.CommandContext, suffix: str = None):
+    async def date_calendar(ctx: interactions.SlashContext, suffix: str = None):
         if not await check_dm(ctx, ctx.author): return
 
         dates = get_data(ctx.guild)[DATES_KEY]
         if not suffix:
             if CALENDAR_KEY in dates:
-                await ctx.send(embed=interactions.Embed(title="Calendar", description="The callendar suffix is "+dtes[CALENDAR_KEY], color=interactions.Color.blurple()), ephemeral=True)
+                await ctx.send(embed=interactions.Embed(title="Calendar", description="The callendar suffix is "+dates[CALENDAR_KEY], color=interactions.BrandColors.BLURPLE), ephemeral=True)
             else:
-                await ctx.send(embed=interactions.Embed(title="Not Set", description="The callendar suffix is not set yet", color=interactions.Color.red()), ephemeral=True)
+                await ctx.send(embed=interactions.Embed(title="Not Set", description="The callendar suffix is not set yet", color=interactions.BrandColors.RED), ephemeral=True)
 
             return
 
@@ -2621,29 +2645,22 @@ if __name__ == "__main__":
         save_data()
         await ctx.send(embeds=interactions.Embed(title="Calendar Set",
                                                  description="Calendar suffix successfully set to **" + suffix + "**",
-                                                 color=interactions.Color.green()))
+                                                 color=interactions.BrandColors.GREEN))
 
 
-    @date_command.group(
-        name="event",
-        description="Manage events on the timeline"
-    )
-    async def date_event(ctx: interactions.CommandContext):
-        if TIMELINE_KEY not in get_data(ctx.guild)[DATES_KEY]:
-            get_data(ctx.guild)[DATES_KEY][TIMELINE_KEY] = {}
-
-
-    @date_event.subcommand(
-        name="add",
-        description="Add an event to the timeline.",
+    @date_command.subcommand(
+        group_name="event",
+        group_description="Manage events on the timeline",
+        sub_cmd_name="add",
+        sub_cmd_description="Add an event to the timeline.",
         options=[
-                    interactions.Option(
+                    interactions.SlashCommandOption(
                         name="title",
                         description="The title of the event.",
                         type=interactions.OptionType.STRING,
                         required=True
                     ),
-                    interactions.Option(
+                    interactions.SlashCommandOption(
                         name="description",
                         description="The description of the event.",
                         type=interactions.OptionType.STRING,
@@ -2651,8 +2668,11 @@ if __name__ == "__main__":
                     )
                 ] + NEW_DATE_OPTIONS
     )
-    async def date_event_add(ctx: interactions.CommandContext, title: str = None, description: str = None, day: int = None, month: str = None,
+    async def date_event_add(ctx: interactions.SlashContext, title: str = None, description: str = None, day: int = None, month: str = None,
                              year: int = None, days: int = None, relative: str = None):
+        if TIMELINE_KEY not in get_data(ctx.guild)[DATES_KEY]:
+            get_data(ctx.guild)[DATES_KEY][TIMELINE_KEY] = {}
+
         if not await check_dm(ctx, ctx.author): return
 
         date = await check_new_date(ctx, day, month, year, days, relative)
@@ -2666,22 +2686,24 @@ if __name__ == "__main__":
         if title in timeline[date]:
             await ctx.send(embeds=interactions.Embed(title="Already Exists",
                                                      description="An event with that name on that date already exists. `/date event remove` to remove it",
-                                                     color=interactions.Color.red()), ephemeral=True)
+                                                     color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         timeline[date][title] = description
         save_data()
         await ctx.send(embeds=interactions.Embed(title="Event Added",
                                                  description="**" + title + "** has been added on **" + format_date(
-                                                     ctx.guild, date) + "**", color=interactions.Color.green()),
+                                                     ctx.guild, date) + "**", color=interactions.BrandColors.GREEN),
                        ephemeral=True)
 
 
-    @date_event.subcommand(
-        name="remove",
-        description="Remove an event from the timeline.",
+    @date_command.subcommand(
+        group_name="event",
+        group_description="Manage events on the timeline",
+        sub_cmd_name="remove",
+        sub_cmd_description="Remove an event from the timeline.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="title",
                 description="The title of the event.",
                 type=interactions.OptionType.STRING,
@@ -2691,7 +2713,10 @@ if __name__ == "__main__":
             EXISTING_DATE_OPTION
         ]
     )
-    async def date_event_remove(ctx: interactions.CommandContext, title: str, date: str):
+    async def date_event_remove(ctx: interactions.SlashContext, title: str, date: str):
+        if TIMELINE_KEY not in get_data(ctx.guild)[DATES_KEY]:
+            get_data(ctx.guild)[DATES_KEY][TIMELINE_KEY] = {}
+
         if not await check_dm(ctx, ctx.author): return
 
         date = await convert_and_check_date(ctx, date)
@@ -2702,23 +2727,28 @@ if __name__ == "__main__":
         if date not in timeline or title not in timeline[date]:
             await ctx.send(embeds=interactions.Embed(title="Doesn't Exist",
                                                      description="Cannot find an event with that title on that date",
-                                                     color=interactions.Color.red()), ephemeral=True)
+                                                     color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         del timeline[date][title]
         save_data()
         await ctx.send(embeds=interactions.Embed(title="Event Removed",
                                                  description="**" + title + "** has been removed from **" + format_date(
-                                                     ctx.guild, date) + "**", color=interactions.Color.green()),
+                                                     ctx.guild, date) + "**", color=interactions.BrandColors.GREEN),
                        ephemeral=True)
 
 
-    @date_event.subcommand(
-        name="list",
-        description="List the events on a date.",
+    @date_command.subcommand(
+        group_name="event",
+        group_description="Manage events on the timeline",
+        sub_cmd_name="list",
+        sub_cmd_description="List the events on a date.",
         options=[EXISTING_DATE_OPTION]
     )
-    async def date_event_list(ctx: interactions.CommandContext, date: str):
+    async def date_event_list(ctx: interactions.SlashContext, date: str):
+        if TIMELINE_KEY not in get_data(ctx.guild)[DATES_KEY]:
+            get_data(ctx.guild)[DATES_KEY][TIMELINE_KEY] = {}
+
         date = await convert_and_check_date(ctx, date)
         if not date: return
 
@@ -2735,7 +2765,7 @@ if __name__ == "__main__":
             events = events[:-2]
 
         await ctx.send(embeds=interactions.Embed(title=format_date(ctx.guild, date), description=events,
-                                                 color=interactions.Color.blurple()), ephemeral=True)
+                                                 color=interactions.BrandColors.BLURPLE), ephemeral=True)
 
 
     async def clear_date_events_callback(ctx: interactions.ComponentContext, date: str):
@@ -2744,15 +2774,20 @@ if __name__ == "__main__":
 
         await ctx.send(embeds=interactions.Embed(title="Events Cleared",
                                                  description=f"Removed all events on **{format_date(ctx.guild, date)}**",
-                                                 color=interactions.Color.green()), ephemeral=True)
+                                                 color=interactions.BrandColors.GREEN), ephemeral=True)
 
 
-    @date_event.subcommand(
-        name="clear",
-        description="Remove every event on a date.",
+    @date_command.subcommand(
+        group_name="event",
+        group_description="Manage events on the timeline",
+        sub_cmd_name="clear",
+        sub_cmd_description="Remove every event on a date.",
         options=[EXISTING_DATE_OPTION]
     )
-    async def date_event_clear(ctx: interactions.CommandContext, date: str):
+    async def date_event_clear(ctx: interactions.SlashContext, date: str):
+        if TIMELINE_KEY not in get_data(ctx.guild)[DATES_KEY]:
+            get_data(ctx.guild)[DATES_KEY][TIMELINE_KEY] = {}
+
         if not await check_dm(ctx, ctx.author): return
 
         date = await convert_and_check_date(ctx, date)
@@ -2762,7 +2797,7 @@ if __name__ == "__main__":
 
         if date not in timeline or len(timeline[date]) == 0:
             await ctx.send(embeds=interactions.Embed(title="No Events", description="No events found!",
-                                                     color=interactions.Color.red()), ephemeral=True)
+                                                     color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         await confirm_action(ctx, f"clear_date_events", clear_date_events_callback, date)
@@ -2774,24 +2809,31 @@ if __name__ == "__main__":
 
         await ctx.send(embeds=interactions.Embed(title="Events Cleared",
                                                  description=f"Removed **every** event",
-                                                 color=interactions.Color.green()), ephemeral=True)
+                                                 color=interactions.BrandColors.GREEN), ephemeral=True)
 
 
-    @date_event.subcommand(
-        name="clear-all",
-        description="Remove every event."
+    @date_command.subcommand(
+        group_name="event",
+        group_description="Manage events on the timeline",
+        sub_cmd_name="clear-all",
+        sub_cmd_description="Remove every event."
     )
-    async def date_event_clear_all(ctx: interactions.CommandContext):
+    async def date_event_clear_all(ctx: interactions.SlashContext):
+        if TIMELINE_KEY not in get_data(ctx.guild)[DATES_KEY]:
+            get_data(ctx.guild)[DATES_KEY][TIMELINE_KEY] = {}
+
         if not await check_dm(ctx, ctx.author): return
 
         await confirm_action(ctx, "clear_all_events", clear_all_events_callback)
 
 
-    @date_event.subcommand(
-        name="search",
-        description="Search for an event by title.",
+    @date_command.subcommand(
+        group_name="event",
+        group_description="Manage events on the timeline",
+        sub_cmd_name="search",
+        sub_cmd_description="Search for an event by title.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="title",
                 description="The title of the event (case insensitive, perfect match only, not partial).",
                 type=interactions.OptionType.STRING,
@@ -2800,7 +2842,10 @@ if __name__ == "__main__":
             )
         ]
     )
-    async def date_event_search(ctx: interactions.CommandContext, title: str):
+    async def date_event_search(ctx: interactions.SlashContext, title: str):
+        if TIMELINE_KEY not in get_data(ctx.guild)[DATES_KEY]:
+            get_data(ctx.guild)[DATES_KEY][TIMELINE_KEY] = {}
+
         timeline = get_data(ctx.guild)[DATES_KEY][TIMELINE_KEY]
 
         desc = ""
@@ -2817,15 +2862,15 @@ if __name__ == "__main__":
                     desc += f"**{title_}**\n{description}\n\n"
             desc = desc[:-2]
 
-        await ctx.send(embeds=interactions.Embed(title=title, description=desc, color=interactions.Color.blurple()),
+        await ctx.send(embeds=interactions.Embed(title=title, description=desc, color=interactions.BrandColors.BLURPLE),
                        ephemeral=True)
 
 
-    @date_event.autocomplete(
+    @date_command.autocomplete(
         "date")  # TODO: a way to make this work only for date_event_remove and take into accout the `event` param?
-    async def autocomplete_date(ctx: interactions.CommandContext, user_input: str = ""):
+    async def autocomplete_date(ctx: interactions.AutocompleteContext, user_input: str = ""):
         if TIMELINE_KEY not in get_data(ctx.guild)[DATES_KEY]:
-            await ctx.populate([])
+            await ctx.send([])
             return
 
         dates = [format_date(ctx.guild, date) for date in get_data(ctx.guild)[DATES_KEY][TIMELINE_KEY]]
@@ -2833,12 +2878,12 @@ if __name__ == "__main__":
             space = "" if user_input.endswith(" ") else " "
             dates = [user_input + space + "CS", user_input + space + "CD"] + dates
 
-        await ctx.populate([interactions.Choice(name=date, value=date) for date in
+        await ctx.send([interactions.SlashCommandChoice(name=date, value=date) for date in
                             filter(lambda key: user_input.lower() in key.lower(), dates)][:25])
 
 
-    @date_event.autocomplete("title")
-    async def autocomplete_event_title(ctx: interactions.CommandContext, user_input: str = ""):
+    @date_command.autocomplete("title")
+    async def autocomplete_event_title(ctx: interactions.AutocompleteContext, user_input: str = ""):
         timeline = get_data(ctx.guild)[DATES_KEY][TIMELINE_KEY]
         titles = set()
 
@@ -2846,14 +2891,14 @@ if __name__ == "__main__":
             for title in filter(lambda key: key.lower().startswith(user_input.lower()), timeline[date].keys()):
                 titles.add(title.lower())
 
-        await ctx.populate([interactions.Choice(name=title.title(), value=title.title()) for title in titles][:25])
+        await ctx.send([interactions.SlashCommandChoice(name=title.title(), value=title.title()) for title in titles][:25])
 
 
-    @bot.command(
+    @interactions.slash_command(
         name="money",
         description="Base command for money tracking."
     )
-    async def money_command(ctx: interactions.CommandContext):
+    async def money_command(ctx: interactions.SlashContext):
         guild = get_data(ctx.guild)
 
         if MONEY_KEY not in guild:
@@ -2862,64 +2907,53 @@ if __name__ == "__main__":
             guild[MONEY_KEY][INCOME_KEY] = {}
 
 
-    @money_command.group(
-        name="expense",
-        description="Command for daily expense tracking."
-    )
-    async def money_expense(ctx: interactions.CommandContext):
-        money = get_data(ctx.guild)[MONEY_KEY]
-        if EXPENSES_KEY not in money:
-            money[EXPENSES_KEY] = {}
-
-        if str(ctx.author.id) not in money[EXPENSES_KEY]:
-            money[EXPENSES_KEY][str(ctx.author.id)] = []
-
-
-    @money_expense.subcommand(
-        name="add",
-        description="Add a daily expense.",
+    @money_command.subcommand(
+        group_name="expense",
+        group_description="Command for daily expense tracking.",
+        sub_cmd_name="add",
+        sub_cmd_description="Add a daily expense.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="title",
                 description="Title of the expense.",
                 type=interactions.OptionType.STRING,
                 required=True
             ),
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="description",
                 description="Description of the expense.",
                 type=interactions.OptionType.STRING,
                 required=True
             ),
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="amount",
                 description="Amount of money.",
                 type=interactions.OptionType.INTEGER,
                 required=True
             ),
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="unit",
                 description="Unit of money.",
                 type=interactions.OptionType.STRING,
                 required=True,
                 choices=[
-                    interactions.Choice(
+                    interactions.SlashCommandChoice(
                         name="PP",
                         value="pp"
                     ),
-                    interactions.Choice(
+                    interactions.SlashCommandChoice(
                         name="GP",
                         value="gp"
                     ),
-                    interactions.Choice(
+                    interactions.SlashCommandChoice(
                         name="EP",
                         value="ep"
                     ),
-                    interactions.Choice(
+                    interactions.SlashCommandChoice(
                         name="SP",
                         value="sp"
                     ),
-                    interactions.Choice(
+                    interactions.SlashCommandChoice(
                         name="CP",
                         value="cp"
                     )
@@ -2927,10 +2961,17 @@ if __name__ == "__main__":
             )
         ]
     )
-    async def money_expense_add(ctx: interactions.CommandContext, title: str, description: str, amount: int, unit: str):
+    async def money_expense_add(ctx: interactions.SlashContext, title: str, description: str, amount: int, unit: str):
+        money = get_data(ctx.guild)[MONEY_KEY]
+        if EXPENSES_KEY not in money:
+            money[EXPENSES_KEY] = {}
+
+        if str(ctx.author.id) not in money[EXPENSES_KEY]:
+            money[EXPENSES_KEY][str(ctx.author.id)] = []
+
         if amount < 1:
             await ctx.send(embeds=interactions.Embed(title="Invalid Amount", description="Amount must be greater than 0",
-                                                     color=interactions.Color.red()), ephemeral=True)
+                                                     color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         expenses = get_data(ctx.guild)[MONEY_KEY][EXPENSES_KEY]
@@ -2938,21 +2979,23 @@ if __name__ == "__main__":
         if any([title.lower() == e[0].lower() for e in expenses[str(ctx.author.id)]]):
             await ctx.send(
                 embeds=interactions.Embed(title="Already Exists", description="An expense with that title already exists",
-                                          color=interactions.Color.red()), ephemeral=True)
+                                          color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         expenses[str(ctx.author.id)].append([title, description, amount, unit])
 
         await ctx.send(embeds=interactions.Embed(title="Expense Added",
                                                  description=f"Added expense **{title}** ({amount} {unit.upper()})",
-                                                 color=interactions.Color.green()), ephemeral=True)
+                                                 color=interactions.BrandColors.GREEN), ephemeral=True)
 
 
-    @money_expense.subcommand(
-        name="remove",
-        description="Remove an expense.",
+    @money_command.subcommand(
+        group_name="expense",
+        group_description="Command for daily expense tracking.",
+        sub_cmd_name="remove",
+        sub_cmd_description="Remove an expense.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="title",
                 description="The title of the expense",
                 type=interactions.OptionType.STRING,
@@ -2961,32 +3004,48 @@ if __name__ == "__main__":
             )
         ]
     )
-    async def money_expense_remove(ctx: interactions.CommandContext, title: str):
+    async def money_expense_remove(ctx: interactions.SlashContext, title: str):
+        money = get_data(ctx.guild)[MONEY_KEY]
+        if EXPENSES_KEY not in money:
+            money[EXPENSES_KEY] = {}
+
+        if str(ctx.author.id) not in money[EXPENSES_KEY]:
+            money[EXPENSES_KEY][str(ctx.author.id)] = []
+
         expenses = get_data(ctx.guild)[MONEY_KEY][EXPENSES_KEY][str(ctx.author.id)]
 
         for expense in expenses:
             if expense[0].lower() == title.lower():
                 await ctx.send(
                     embeds=interactions.Embed(title="Expense Removed", description=f"Removed expense **{expense[0]}**",
-                                              color=interactions.Color.green()), ephemeral=True)
+                                              color=interactions.BrandColors.GREEN), ephemeral=True)
                 return
 
         await ctx.send(embeds=interactions.Embed(title="Not Found", description="Could not find an expense by that title",
-                                                 color=interactions.Color.red()), ephemeral=True)
+                                                 color=interactions.BrandColors.RED), ephemeral=True)
 
 
-    @money_expense.subcommand(
-        name="list",
-        description="List all your expenses.",
+    @money_command.subcommand(
+        group_name="expense",
+        group_description="Command for daily expense tracking.",
+        sub_cmd_name="list",
+        sub_cmd_description="List all your expenses.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="player",
                 description="Player for which to list the sources. Only DM may use.",
                 type=interactions.OptionType.USER
             )
         ]
     )
-    async def money_expense_list(ctx: interactions.CommandContext, player: interactions.Member = None):
+    async def money_expense_list(ctx: interactions.SlashContext, player: interactions.Member = None):
+        money = get_data(ctx.guild)[MONEY_KEY]
+        if EXPENSES_KEY not in money:
+            money[EXPENSES_KEY] = {}
+
+        if str(ctx.author.id) not in money[EXPENSES_KEY]:
+            money[EXPENSES_KEY][str(ctx.author.id)] = []
+
         if player and not await check_dm(ctx, ctx.author): return
 
         user = player if player else ctx.author
@@ -3006,7 +3065,7 @@ if __name__ == "__main__":
 
             desc = desc[:-2]
 
-        await ctx.send(embeds=interactions.Embed(title="Expenses", description=desc, color=interactions.Color.green()),
+        await ctx.send(embeds=interactions.Embed(title="Expenses", description=desc, color=interactions.BrandColors.GREEN),
                        ephemeral=True)
 
 
@@ -3015,75 +3074,73 @@ if __name__ == "__main__":
         save_data()
         await ctx.send(embeds=interactions.Embed(title="Expenses Cleared",
                                                  description="Expenses have been successfully cleared",
-                                                 color=interactions.Color.green()), ephemeral=True)
+                                                 color=interactions.BrandColors.GREEN), ephemeral=True)
 
 
-    @money_expense.subcommand(
-        name="clear",
-        description="Clears every expense."
+    @money_command.subcommand(
+        group_name="expense",
+        group_description="Command for daily expense tracking.",
+        sub_cmd_name="clear",
+        sub_cmd_description="Clears every expense."
     )
-    async def money_expense_clear(ctx: interactions.CommandContext):
+    async def money_expense_clear(ctx: interactions.SlashContext):
+        money = get_data(ctx.guild)[MONEY_KEY]
+        if EXPENSES_KEY not in money:
+            money[EXPENSES_KEY] = {}
+
+        if str(ctx.author.id) not in money[EXPENSES_KEY]:
+            money[EXPENSES_KEY][str(ctx.author.id)] = []
+
         await confirm_action(ctx, "clear_expense", expense_clear_callback)
 
 
-    @money_command.group(
-        name="income",
-        description="Command for daily income tracking."
-    )
-    async def money_income(ctx: interactions.CommandContext):
-        money = get_data(ctx.guild)[MONEY_KEY]
-        if INCOME_KEY not in money:
-            money[INCOME_KEY] = {}
-
-        if str(ctx.author.id) not in money[INCOME_KEY]:
-            money[INCOME_KEY][str(ctx.author.id)] = []
-
-
-    @money_income.subcommand(
-        name="add",
-        description="Add a daily income source.",
+    @money_command.subcommand(
+        group_name="income",
+        group_description="Command for daily income tracking.",
+        sub_cmd_name="add",
+        sub_cmd_description="Add a daily income source.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="title",
                 description="Title of the source.",
                 type=interactions.OptionType.STRING,
                 required=True
             ),
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="description",
                 description="Description of the source.",
                 type=interactions.OptionType.STRING,
                 required=True
             ),
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="amount",
                 description="Amount of money.",
                 type=interactions.OptionType.INTEGER,
                 required=True
             ),
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="unit",
                 description="Unit of money.",
                 type=interactions.OptionType.STRING,
                 required=True,
                 choices=[
-                    interactions.Choice(
+                    interactions.SlashCommandChoice(
                         name="PP",
                         value="pp"
                     ),
-                    interactions.Choice(
+                    interactions.SlashCommandChoice(
                         name="GP",
                         value="gp"
                     ),
-                    interactions.Choice(
+                    interactions.SlashCommandChoice(
                         name="EP",
                         value="ep"
                     ),
-                    interactions.Choice(
+                    interactions.SlashCommandChoice(
                         name="SP",
                         value="sp"
                     ),
-                    interactions.Choice(
+                    interactions.SlashCommandChoice(
                         name="CP",
                         value="cp"
                     )
@@ -3091,10 +3148,17 @@ if __name__ == "__main__":
             )
         ]
     )
-    async def money_income_add(ctx: interactions.CommandContext, title: str, description: str, amount: int, unit: str):
+    async def money_income_add(ctx: interactions.SlashContext, title: str, description: str, amount: int, unit: str):
+        money = get_data(ctx.guild)[MONEY_KEY]
+        if INCOME_KEY not in money:
+            money[INCOME_KEY] = {}
+
+        if str(ctx.author.id) not in money[INCOME_KEY]:
+            money[INCOME_KEY][str(ctx.author.id)] = []
+
         if amount < 1:
             await ctx.send(embeds=interactions.Embed(title="Invalid Amount", description="Amount must be greater than 0",
-                                                     color=interactions.Color.red()), ephemeral=True)
+                                                     color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         incomes = get_data(ctx.guild)[MONEY_KEY][INCOME_KEY]
@@ -3102,21 +3166,23 @@ if __name__ == "__main__":
         if any([title.lower() == e[0].lower() for e in incomes[str(ctx.author.id)]]):
             await ctx.send(embeds=interactions.Embed(title="Already Exists",
                                                      description="An income source with that title already exists",
-                                                     color=interactions.Color.red()), ephemeral=True)
+                                                     color=interactions.BrandColors.RED), ephemeral=True)
             return
 
         incomes[str(ctx.author.id)].append([title, description, amount, unit])
 
         await ctx.send(embeds=interactions.Embed(title="Income Added",
                                                  description=f"Added income source **{title}** ({amount} {unit.upper()})",
-                                                 color=interactions.Color.green()), ephemeral=True)
+                                                 color=interactions.BrandColors.GREEN), ephemeral=True)
 
 
-    @money_income.subcommand(
-        name="remove",
-        description="Remove an income source.",
+    @money_command.subcommand(
+        group_name="income",
+        group_description="Command for daily income tracking.",
+        sub_cmd_name="remove",
+        sub_cmd_description="Remove an income source.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="title",
                 description="The title of the source",
                 type=interactions.OptionType.STRING,
@@ -3125,33 +3191,49 @@ if __name__ == "__main__":
             )
         ]
     )
-    async def money_income_remove(ctx: interactions.CommandContext, title: str):
+    async def money_income_remove(ctx: interactions.SlashContext, title: str):
+        money = get_data(ctx.guild)[MONEY_KEY]
+        if INCOME_KEY not in money:
+            money[INCOME_KEY] = {}
+
+        if str(ctx.author.id) not in money[INCOME_KEY]:
+            money[INCOME_KEY][str(ctx.author.id)] = []
+
         incomes = get_data(ctx.guild)[MONEY_KEY][INCOME_KEY][str(ctx.author.id)]
 
         for income in incomes:
             if income[0].lower() == title.lower():
                 await ctx.send(
                     embeds=interactions.Embed(title="Income Removed", description=f"Removed income source **{income[0]}**",
-                                              color=interactions.Color.green()), ephemeral=True)
+                                              color=interactions.BrandColors.GREEN), ephemeral=True)
                 return
 
         await ctx.send(
             embeds=interactions.Embed(title="Not Found", description="Could not find an income source by that title",
-                                      color=interactions.Color.red()), ephemeral=True)
+                                      color=interactions.BrandColors.RED), ephemeral=True)
 
 
-    @money_income.subcommand(
-        name="list",
-        description="List all your income sources.",
+    @money_command.subcommand(
+        group_name="income",
+        group_description="Command for daily income tracking.",
+        sub_cmd_name="list",
+        sub_cmd_description="List all your income sources.",
         options=[
-            interactions.Option(
+            interactions.SlashCommandOption(
                 name="player",
                 description="Player for which to list the sources. Only DM may use.",
                 type=interactions.OptionType.USER
             )
         ]
     )
-    async def money_income_list(ctx: interactions.CommandContext, player: interactions.Member = None):
+    async def money_income_list(ctx: interactions.SlashContext, player: interactions.Member = None):
+        money = get_data(ctx.guild)[MONEY_KEY]
+        if INCOME_KEY not in money:
+            money[INCOME_KEY] = {}
+
+        if str(ctx.author.id) not in money[INCOME_KEY]:
+            money[INCOME_KEY][str(ctx.author.id)] = []
+
         if player and not await check_dm(ctx, ctx.author): return
 
         user = player if player else ctx.author
@@ -3172,7 +3254,7 @@ if __name__ == "__main__":
             desc = desc[:-2]
 
         await ctx.send(
-            embeds=interactions.Embed(title="Income Sources", description=desc, color=interactions.Color.green()),
+            embeds=interactions.Embed(title="Income Sources", description=desc, color=interactions.BrandColors.GREEN),
             ephemeral=True)
 
 
@@ -3181,41 +3263,48 @@ if __name__ == "__main__":
         save_data()
         await ctx.send(embeds=interactions.Embed(title="Incoome Cleared",
                                                  description="Income sources have been successfully cleared",
-                                                 color=interactions.Color.green()), ephemeral=True)
+                                                 color=interactions.BrandColors.GREEN), ephemeral=True)
 
 
-    @money_income.subcommand(
-        name="clear",
-        description="Clears every income source."
+    @money_command.subcommand(
+        group_name="income",
+        group_description="Command for daily income tracking.",
+        sub_cmd_name="clear",
+        sub_cmd_description="Clears every income source."
     )
-    async def money_income_clear(ctx: interactions.CommandContext):
+    async def money_income_clear(ctx: interactions.SlashContext):
+        money = get_data(ctx.guild)[MONEY_KEY]
+        if INCOME_KEY not in money:
+            money[INCOME_KEY] = {}
+
+        if str(ctx.author.id) not in money[INCOME_KEY]:
+            money[INCOME_KEY][str(ctx.author.id)] = []
+
         await confirm_action(ctx, "clear_income", income_clear_callback)
 
 
     @money_expense_remove.autocomplete("title")
-    async def expense_and_income_title_autocomplete(ctx: interactions.CommandContext, user_input: str = ""):
-        if ctx.data.options[0].name != "expense" and ctx.data.options[0].name != "income": return
-
+    async def expense_and_income_title_autocomplete(ctx: interactions.AutocompleteContext, user_input: str = ""):
         try:
             expenses = \
-            get_data(ctx.guild)[MONEY_KEY][EXPENSES_KEY if ctx.data.options[0].name == "expense" else INCOME_KEY][
+            get_data(ctx.guild)[MONEY_KEY][EXPENSES_KEY][
                 str(ctx.author.id)]
         except KeyError:
-            await ctx.populate([])
+            await ctx.send([])
             return
 
         titles = [e[0] for e in expenses]
 
-        await ctx.populate([interactions.Choice(name=title, value=title) for title in
+        await ctx.send([interactions.SlashCommandChoice(name=title, value=title) for title in
                             filter(lambda key: key.lower().startswith(user_input.lower()), titles)][:25])
 
-    @monster_hp.autocomplete(name="monster")
-    @monster_command.autocomplete(name="monster")
-    async def autocomplete_monster(ctx: interactions.CommandContext, user_input: str = ""):
-        await ctx.populate([interactions.Choice(name=key, value=key) for key in MONSTER_ID_BY_NAME if key.lower().startswith(user_input.lower())][:25])
+    @monster_hp.autocomplete("monster")
+    @monster_command.autocomplete("monster")
+    async def autocomplete_monster(ctx: interactions.AutocompleteContext, user_input: str = ""):
+        await ctx.send([interactions.SlashCommandChoice(name=key, value=key) for key in MONSTER_ID_BY_NAME if key.lower().startswith(user_input.lower())][:25])
 
 
     try:
-        bot.start()
+        bot.start(os.getenv("BOT_AUTH_TOKEN"))
     except Exception as e:
         print(f"ERROR!!! {e}")
