@@ -13,7 +13,6 @@ import asyncio
 import interactions
 import requests
 from appdirs import *
-from dotenv import get_key, set_key
 
 import ZSDR
 from monster_scraper import cache_monsters
