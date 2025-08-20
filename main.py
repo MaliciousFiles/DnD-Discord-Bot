@@ -1,6 +1,3 @@
-import platform
-IS_SERVER = platform.system() == "Linux"
-
 import atexit
 import builtins
 import json
@@ -17,12 +14,6 @@ import interactions
 import requests
 from appdirs import *
 from dotenv import get_key, set_key
-
-if not IS_SERVER:
-    from tkinter import *
-    from tkinter.messagebox import askyesno
-    from PIL import Image
-    import pystray
 
 import ZSDR
 from monster_scraper import cache_monsters
@@ -172,7 +163,7 @@ if __name__ == "__main__":
         stats = not MONSTER_STATS_CACHED and monster_stats_file
         statblocks = not MONSTER_STATBLOCKS_CACHED and path.dirname(monster_statblocks_file)
 
-        if stats or statblocks and IS_SERVER:
+        if stats or statblocks:
             print("ERROR: stats JSON or statblock images not loaded properly!")
             break
 
@@ -218,93 +209,21 @@ if __name__ == "__main__":
         window.geometry("+%d+%d" % (x, y))
 
 
-    def set_and_get_env(key: str, prompt: str, strip=False, on_exit=None) -> str:
-        if IS_SERVER:
-            return None
-
-        window = Tk()
-        window.title(appname)
-        window.tk.call('wm', 'iconphoto', window._w, PhotoImage(file=icon_file))
-
-        center(window)
-
-        label = Label(window, text=prompt)
-        label.pack(pady=(2.5, 7.5))
-
-        def finish(event=None):
-            i = input_.get(1.0, "end-1c")
-
-            if strip:
-                i = i.strip()
-
-            set_key(env_file, key, i)
-            window.destroy()
-
-        frame = Frame(window)
-        frame.pack(side=BOTTOM)
-
-        input_ = Text(frame, height=1, width=30)
-        input_.pack(side=LEFT, padx=(2.5, 0), pady=(0, 2.5))
-        input_.bind("<Return>", finish)
-
-        submit = Button(frame, text="Submit", command=finish)
-        submit.pack(side=LEFT, padx=(10, 2.5), pady=(0, 2.5))
-
-        def on_close():
-            if askyesno("Confirm", "Are you sure you want to exit?"):
-                window.destroy()
-
-                if on_exit:
-                    on_exit()
-
-                os._exit(0)
-
-        window.protocol("WM_DELETE_WINDOW", on_close)
-
-        window.mainloop()
-
-        return get_key(env_file, key)
-
-
-    def get_or_set_env(key: str, prompt: str, strip=False, on_exit=None) -> str:
-        if not get_key(env_file, key):
-            return set_and_get_env(key, prompt, strip, on_exit)
-        else:
-            return get_key(env_file, key)
-
-
     def quit_app(thing1=None, thing2=None):
         save_data()
 
         with open(monster_stats_file, "w") as f:
             json.dump(MONSTER_STATS, f)
 
-        if not IS_SERVER:
-            icon.visible = False
-            icon.stop()
-
         os._exit(0)
 
 
-    token = get_or_set_env("BOT_AUTH_TOKEN", "Enter your Discord bot's Authentication Token:", True, quit_app).strip()
+    try:
+        bot = interactions.Client(os.getenv("BOT_AUTH_TOKEN"))
+    except Exception as e:
+        print("[EXCEPTION] invalid auth token: " + str(e))
 
-    error = True
-    while error:
-        error = False
-        try:
-            bot = interactions.Client(token)
-        except Exception as e:
-            print("[EXCEPTION] invalid auth token: " + str(e))
-            if not IS_SERVER:
-                error = True
-                set_and_get_env("BOT_AUTH_TOKEN",
-                                "Saved Discord Authentication Token is invalid! Enter the correct one below, then the app will restart:",
-                                True)
-
-                subprocess.Popen([sys.executable, __file__], start_new_session=True, stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL)
-
-            os._exit(0)
+        os._exit(0)
 
 
     def get_data(guild: interactions.Guild, campaign: bool = True):
@@ -314,9 +233,6 @@ if __name__ == "__main__":
 
     @bot.event
     async def on_ready():
-        if not IS_SERVER:
-            icon.visible = True
-
         for guild in bot.guilds:
             if str(guild.id) not in DATA:
                 DATA[str(guild.id)] = {CREDENTIALS_KEY: {}, CAMPAIGNS_KEY: {"Default": {CHARACTERS_KEY: {}}}, CURRENT_CAMPAIGN_KEY: "Default"}
@@ -3300,27 +3216,7 @@ if __name__ == "__main__":
         await ctx.populate([interactions.Choice(name=key, value=key) for key in MONSTER_ID_BY_NAME if key.lower().startswith(user_input.lower())][:25])
 
 
-    def start_bot():
-        try:
-            bot.start()
-        except Exception as e:
-            print(f"ERROR!!! {e}")
-
-    if not IS_SERVER:
-        def confirm_quit():
-            if askyesno("Confirm", "Are you sure you want to quit?"):
-                quit_app()
-
-        menu = (
-            pystray.MenuItem("Confirm Quit", confirm_quit, default=True, visible=False),
-            pystray.MenuItem("Quit", quit_app)
-        )
-        icon = pystray.Icon(name=appname, icon=Image.open(icon_file), title=appname, menu=menu)
-
-        atexit.register(quit_app)
-        signal.signal(signal.SIGTERM, quit_app)
-        signal.signal(signal.SIGINT, quit_app)
-
-        icon.run(lambda thing: start_bot())
-    else:
-        start_bot()
+    try:
+        bot.start()
+    except Exception as e:
+        print(f"ERROR!!! {e}")
