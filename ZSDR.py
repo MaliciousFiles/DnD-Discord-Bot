@@ -17,7 +17,7 @@ __Operands in Order of Operations [__`L` __= value to the left,__ `R` __= value 
     ○ **sd** `L` `R`-sided dice, but not added; any other operations will apply to all of them
     ○ **b** keeps the `R` lowest values of `L` (must be a list, such as from **sd**)
     ○ **t** keeps the `R` highest values of `L` (must be a list, such as from **sd**)
-  • \*, /, ^ (exponentiation), % (modulo)
+  • \\*, /, ^ (exponentiation), % (modulo)
   • +, -
   • **x** (execute)
     ○ run `R` (must be input, e.g. `1d20`) `L` times
@@ -533,3 +533,4 @@ def vs(x,y):
 
 ops=["x","d","sd","t","b","^","+","-","*","/","%","<","<=","==",">",">=","!=","vs"]
 funcs={"d":roll,"sd":rollsep,"t":top,"b":bottom,"^":pow,"+":add,"-":negative,"*":prod,"/":div,"%":mod,"<":less,"<=":lesseq,"==":equal,">":great,">=":greateq,"!=":noteq,"vs":vs}
+
